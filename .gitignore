@@ -1,2 +1,12 @@
-ref/*
-.omx*
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+.gsc-token.json
+gsc-oauth-token.json
+.omx/
+ref/
