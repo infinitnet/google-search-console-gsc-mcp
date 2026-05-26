@@ -580,6 +580,7 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `GSC_SITE_URL` | unset | Optional fallback property if a tool call omits `site_url`. |
 | `GSC_SITE_URLS` | unset | Optional comma-separated fallback list for multi-property tools. |
 | `GSC_DATA_STATE` | `all` | Search Analytics data state: `all` or `final`. |
+| `GSC_ENABLE_INDEXING_API` | `true` | Set to `false` to disable Indexing API notification tools. |
 
 ## Response format
 

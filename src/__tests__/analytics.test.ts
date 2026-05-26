@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dateRangeForDays, normalizeRows, pctChange, summarizeRows } from "../analytics.js";
+import { dateRangeForDays, normalizeRows, pctChange, previousRange, summarizeRows } from "../analytics.js";
 import { parseSiteUrls } from "../config.js";
 import { ok } from "../response.js";
 
@@ -25,6 +25,23 @@ test("dateRangeForDays returns inclusive ISO range ending yesterday by default",
   const start = Date.parse(range.startDate);
   const end = Date.parse(range.endDate);
   assert.equal((end - start) / 86_400_000, 27);
+});
+
+test("date ranges clamp invalid or excessive day counts safely", () => {
+  const current = dateRangeForDays(Number.NaN);
+  const currentStart = Date.parse(current.startDate);
+  const currentEnd = Date.parse(current.endDate);
+  assert.equal((currentEnd - currentStart) / 86_400_000, 27);
+
+  const prior = previousRange(10_000);
+  const priorStart = Date.parse(prior.startDate);
+  const priorEnd = Date.parse(prior.endDate);
+  assert.equal((priorEnd - priorStart) / 86_400_000, 547);
+});
+
+test("normalizeRows coerces non-finite numeric values to zero", () => {
+  const [row] = normalizeRows([{ keys: ["bad"], clicks: Number.NaN, impressions: Infinity, ctr: -Infinity, position: Number.NaN }]);
+  assert.deepEqual(row, { keys: ["bad"], clicks: 0, impressions: 0, ctr: 0, position: 0 });
 });
 
 test("parseSiteUrls trims comma-separated values", () => {

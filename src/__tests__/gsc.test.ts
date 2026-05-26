@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fetchSearchRows } from "../analytics.js";
-import { propertiesList, sitemapSubmit, urlInspect } from "../gsc.js";
+import { indexNotify, periodCompare, propertiesList, sitemapSubmit, urlInspect } from "../gsc.js";
 import { resetClientsForTests, setClientsForTests } from "../auth.js";
 
 function chain<T>(value: T) {
@@ -32,6 +32,41 @@ test("propertiesList normalizes site entries", async () => {
   const mock = { sites: { list: chain({ siteEntry: [{ siteUrl: "https://example.com/", permissionLevel: "siteOwner" }] }) } } as any;
   setClientsForTests({ searchConsole: mock });
   assert.deepEqual(await propertiesList(), { count: 1, properties: [{ siteUrl: "https://example.com/", permissionLevel: "siteOwner" }] });
+});
+
+test("periodCompare reports CTR as percentage points consistently", async () => {
+  let call = 0;
+  const mock = {
+    searchanalytics: {
+      query: async () => {
+        call += 1;
+        return call === 1
+          ? { data: { rows: [{ keys: ["https://example.com/a"], clicks: 20, impressions: 100, ctr: 0.2, position: 2 }] } }
+          : { data: { rows: [{ keys: ["https://example.com/a"], clicks: 10, impressions: 100, ctr: 0.1, position: 3 }] } };
+      }
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await periodCompare({ siteUrl: "sc-domain:example.com", days: 7, dimensions: ["page"], rowLimit: 10 });
+
+  assert.equal(result.rows[0]!.current.ctr, 20);
+  assert.equal(result.rows[0]!.prior.ctr, 10);
+  assert.equal(result.rows[0]!.change.ctr, 10);
+});
+
+test("indexNotify respects the indexing API opt-out configuration", async () => {
+  const previous = process.env.GSC_ENABLE_INDEXING_API;
+  process.env.GSC_ENABLE_INDEXING_API = "false";
+  try {
+    await assert.rejects(
+      () => indexNotify({ url: "https://example.com/job/a" }),
+      /disabled/
+    );
+  } finally {
+    if (previous === undefined) delete process.env.GSC_ENABLE_INDEXING_API;
+    else process.env.GSC_ENABLE_INDEXING_API = previous;
+  }
 });
 
 test("urlInspect calls URL Inspection API", async () => {

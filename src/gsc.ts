@@ -1,3 +1,4 @@
+import type { searchconsole_v1 } from "@googleapis/searchconsole";
 import type { DimensionFilter, SearchDimension, SearchRow } from "./types.js";
 import { getConfig, resolveSiteUrl } from "./config.js";
 import { getIndexingClient, getSearchConsoleClient } from "./auth.js";
@@ -144,6 +145,9 @@ export async function sitemapSubmit(input: { siteUrl?: string; sitemapUrl: strin
 }
 
 export async function indexNotify(input: { url: string; action?: "URL_UPDATED" | "URL_DELETED" }) {
+  if (!getConfig().allowIndexingApi) {
+    throw new Error("Indexing API notifications are disabled by GSC_ENABLE_INDEXING_API=false.");
+  }
   const client = await getIndexingClient();
   const response = await client.urlNotifications.publish({ requestBody: { url: input.url, type: input.action ?? "URL_UPDATED" } });
   return { url: input.url, action: input.action ?? "URL_UPDATED", metadata: response.data.urlNotificationMetadata ?? null };
@@ -159,7 +163,7 @@ export async function indexNotifyBatch(input: { urls: string[]; action?: "URL_UP
   return { total: input.urls.length, succeeded: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results };
 }
 
-function inspectionIssues(index: NonNullable<Awaited<ReturnType<typeof getSearchConsoleClient>>> extends never ? never : any, rich: any): string[] {
+function inspectionIssues(index: searchconsole_v1.Schema$IndexStatusInspectionResult | undefined, rich: searchconsole_v1.Schema$RichResultsInspectionResult | undefined): string[] {
   const issues: string[] = [];
   if (!index) return ["No index status returned by URL Inspection API."];
   if (index.verdict && index.verdict !== "PASS") issues.push(`Index verdict: ${index.verdict}`);
@@ -170,13 +174,13 @@ function inspectionIssues(index: NonNullable<Awaited<ReturnType<typeof getSearch
   return issues;
 }
 
-function metrics(row: SearchRow) { return { clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position }; }
+function metrics(row: SearchRow) { return { clicks: row.clicks, impressions: row.impressions, ctr: Number((row.ctr * 100).toFixed(2)), position: row.position }; }
 function emptyMetrics() { return { clicks: 0, impressions: 0, ctr: 0, position: 0 }; }
 function compareMetrics(current?: SearchRow, prior?: SearchRow) {
   return {
     clicks: (current?.clicks ?? 0) - (prior?.clicks ?? 0),
     impressions: (current?.impressions ?? 0) - (prior?.impressions ?? 0),
-    ctr: Number(((current?.ctr ?? 0) - (prior?.ctr ?? 0)).toFixed(4)),
+    ctr: Number((((current?.ctr ?? 0) - (prior?.ctr ?? 0)) * 100).toFixed(2)),
     position: Number(((current?.position ?? 0) - (prior?.position ?? 0)).toFixed(2))
   };
 }

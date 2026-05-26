@@ -3,27 +3,40 @@ import { getConfig } from "./config.js";
 import { getSearchConsoleClient } from "./auth.js";
 
 const MAX_API_LIMIT = 25_000;
+const MAX_DATE_RANGE_DAYS = 548;
 
 export function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function boundedInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+  const integer = Number.isFinite(value) ? Math.trunc(value as number) : fallback;
+  return Math.max(min, Math.min(max, integer));
+}
+
+function finiteNumber(value: unknown): number {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
 export function dateRangeForDays(days = 28, offsetDays = 1): DateRange {
-  const safeDays = Math.max(1, Math.min(548, Math.trunc(days)));
+  const safeDays = boundedInteger(days, 28, 1, MAX_DATE_RANGE_DAYS);
+  const safeOffsetDays = boundedInteger(offsetDays, 1, 0, MAX_DATE_RANGE_DAYS);
   const end = new Date();
   end.setUTCHours(0, 0, 0, 0);
-  end.setUTCDate(end.getUTCDate() - offsetDays);
+  end.setUTCDate(end.getUTCDate() - safeOffsetDays);
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - safeDays + 1);
   return { startDate: isoDate(start), endDate: isoDate(end) };
 }
 
 export function previousRange(days = 28, offsetDays = 1): DateRange {
+  const safeDays = boundedInteger(days, 28, 1, MAX_DATE_RANGE_DAYS);
   const current = dateRangeForDays(days, offsetDays);
   const end = new Date(`${current.startDate}T00:00:00.000Z`);
   end.setUTCDate(end.getUTCDate() - 1);
   const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - Math.max(1, Math.trunc(days)) + 1);
+  start.setUTCDate(start.getUTCDate() - safeDays + 1);
   return { startDate: isoDate(start), endDate: isoDate(end) };
 }
 
@@ -53,10 +66,10 @@ export function summarizeRows(rows: SearchRow[]): MetricSummary {
 export function normalizeRows(rows: Array<{ keys?: string[] | null; clicks?: number | null; impressions?: number | null; ctr?: number | null; position?: number | null }> | undefined): SearchRow[] {
   return (rows ?? []).map((row) => ({
     keys: row.keys ?? [],
-    clicks: Number(row.clicks ?? 0),
-    impressions: Number(row.impressions ?? 0),
-    ctr: Number(row.ctr ?? 0),
-    position: Number(row.position ?? 0)
+    clicks: finiteNumber(row.clicks),
+    impressions: finiteNumber(row.impressions),
+    ctr: finiteNumber(row.ctr),
+    position: finiteNumber(row.position)
   }));
 }
 
@@ -67,9 +80,9 @@ export function buildFilterGroups(filters?: DimensionFilter[]) {
 
 export async function fetchSearchRows(request: SearchQueryRequest, fetchAll = false): Promise<SearchRow[]> {
   const client = await getSearchConsoleClient();
-  const rowLimit = Math.max(1, Math.min(request.rowLimit ?? 1000, MAX_API_LIMIT));
+  const rowLimit = boundedInteger(request.rowLimit, 1000, 1, MAX_API_LIMIT);
   const allRows: SearchRow[] = [];
-  let startRow = request.startRow ?? 0;
+  let startRow = boundedInteger(request.startRow, 0, 0, Number.MAX_SAFE_INTEGER);
   const pageSize = fetchAll ? Math.min(rowLimit, MAX_API_LIMIT) : rowLimit;
 
   while (allRows.length < rowLimit) {

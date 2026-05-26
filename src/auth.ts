@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -10,11 +11,16 @@ import { getConfig } from "./config.js";
 
 const WEBMASTERS_SCOPE = "https://www.googleapis.com/auth/webmasters";
 const INDEXING_SCOPE = "https://www.googleapis.com/auth/indexing";
-const OAUTH_CALLBACK_PORT = Number(process.env.GSC_OAUTH_CALLBACK_PORT ?? process.env.GSC_OAUTH_PORT ?? 3847);
+const OAUTH_CALLBACK_PORT = parsePort(process.env.GSC_OAUTH_CALLBACK_PORT ?? process.env.GSC_OAUTH_PORT, 3847);
 
 let searchConsoleClient: searchconsole_v1.Searchconsole | undefined;
 let indexingClient: indexing_v3.Indexing | undefined;
-let authPromise: Promise<unknown> | undefined;
+let authPromise: Promise<OAuth2Client> | undefined;
+
+function parsePort(value: string | undefined, fallback: number): number {
+  const port = Number(value ?? fallback);
+  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : fallback;
+}
 
 function ensureDir(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -49,11 +55,17 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
   }
 
   if (!authPromise) {
-    authPromise = new Promise<string>((resolve, reject) => {
+    const state = crypto.randomUUID();
+    const codePromise = new Promise<string>((resolve, reject) => {
       const server = http.createServer((req, res) => {
         try {
           const requestUrl = new URL(req.url ?? "/", redirectUri);
-          if (requestUrl.pathname !== "/oauth2callback") return;
+          if (requestUrl.pathname !== "/oauth2callback") {
+            res.statusCode = 404;
+            res.end("Not found.");
+            return;
+          }
+          if (requestUrl.searchParams.get("state") !== state) throw new Error("OAuth callback state did not match.");
           const code = requestUrl.searchParams.get("code");
           if (!code) throw new Error("OAuth callback did not include an authorization code.");
           res.end("Google Search Console MCP authentication complete. You can close this tab.");
@@ -67,20 +79,25 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
         }
       });
       server.listen(OAUTH_CALLBACK_PORT, "127.0.0.1", () => {
-        const authUrl = oauth2.generateAuthUrl({ access_type: "offline", prompt: "consent", scope: scopes });
+        const authUrl = oauth2.generateAuthUrl({ access_type: "offline", prompt: "consent", scope: scopes, state });
         void open(authUrl).catch(() => console.error(`Open this URL to authenticate Google Search Console MCP: ${authUrl}`));
       });
       server.on("error", reject);
     });
+    authPromise = codePromise
+      .then(async (code) => {
+        const { tokens } = await oauth2.getToken(code);
+        oauth2.setCredentials(tokens);
+        ensureDir(config.oauthTokenFile);
+        fs.writeFileSync(config.oauthTokenFile, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+        return oauth2;
+      })
+      .finally(() => {
+        authPromise = undefined;
+      });
   }
 
-  const code = await authPromise;
-  const { tokens } = await oauth2.getToken(code as string);
-  oauth2.setCredentials(tokens);
-  ensureDir(config.oauthTokenFile);
-  fs.writeFileSync(config.oauthTokenFile, JSON.stringify(tokens, null, 2));
-  authPromise = undefined;
-  return oauth2;
+  return authPromise;
 }
 
 async function getGoogleAuth(scopes: string[]): Promise<GoogleAuth | OAuth2Client> {
