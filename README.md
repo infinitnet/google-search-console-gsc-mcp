@@ -410,6 +410,8 @@ Tool: `gsc_query_overlap`
   "days": 28,
   "min_impressions": 50,
   "min_pages": 2,
+  "min_overlap_impressions": 10,
+  "min_overlap_percent": 1,
   "limit": 50
 }
 ```
@@ -419,12 +421,14 @@ Use this for cannibalization, consolidation, or intent-separation reviews.
 The default output focuses on two-page comparisons in `pagePairs`. Each pair
 reports overlapping query counts, query-overlap percentages, shared impressions,
 and `overlappingImpressions.balanced`, which uses `2 × min(page impressions)` per
-shared query. This discounts cases where one page receives almost all impressions
-for a shared query, so a 100-vs-2 impression overlap is not ranked like a true
-two-page cannibalization issue. Higher `cannibalizationScore` and `severity`
-values indicate more urgent overlap. `min_impressions` filters page pairs by
-balanced overlap impressions and filters query groups by total query impressions.
-Query-level groups remain available in `queries` for consolidation context.
+shared query. This discounts lopsided cases where one page receives almost all
+impressions for a shared query. `cannibalizationScore` and `severity` are
+relative: they combine query-overlap share with balanced-impression-overlap share.
+`attentionScore` combines that relative severity with absolute balanced-overlap
+volume for prioritization. By default, `min_overlap_impressions` and
+`min_overlap_percent` only remove tiny/noisy pairs; `min_impressions` continues to
+filter query-level groups by total query impressions. Query-level groups remain
+available in `queries` for consolidation context.
 
 ### 17. Analyze a site section
 
@@ -548,7 +552,7 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `gsc_uncovered_queries` | Poor-ranking high-impression queries | `site_url`, `days`, `min_impressions`, `min_position` |
 | `gsc_traffic_loss` | Diagnose page click losses | `site_url`, `days`, `min_prior_clicks` |
 | `gsc_content_decay` | Three-period page decline detection | `site_url`, `min_oldest_clicks` |
-| `gsc_query_overlap` | Two-page query/impression overlap with cannibalization severity | `site_url`, `days`, `min_impressions`, `min_pages` |
+| `gsc_query_overlap` | Two-page query/impression overlap with relative cannibalization severity | `site_url`, `days`, `min_impressions`, `min_pages`, overlap filters |
 | `gsc_section_performance` | Analyze URLs containing a path fragment | `site_url`, `path_contains`, `days` |
 | `gsc_alert_scan` | Recent click/CTR/position alerts | `site_url`, `days`, thresholds |
 | `gsc_action_plan` | Prioritized SEO recommendations | `site_url`, `days`, `limit` |

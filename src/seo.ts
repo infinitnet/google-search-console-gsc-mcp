@@ -172,6 +172,7 @@ type PagePairOverlap = {
   sharedImpressions: { pageA: number; pageB: number; total: number; percentOfPair: number };
   overlappingImpressions: { balanced: number; percentOfPair: number };
   cannibalizationScore: number;
+  attentionScore: number;
   severity: "high" | "medium" | "low" | "negligible";
   queries: Array<{
     query: string;
@@ -183,14 +184,16 @@ type PagePairOverlap = {
   }>;
 };
 
-export async function queryPageOverlap(input: { siteUrl?: string; days?: number; minImpressions?: number; minPages?: number; limit?: number }) {
+export async function queryPageOverlap(input: { siteUrl?: string; days?: number; minImpressions?: number; minPages?: number; minOverlapImpressions?: number; minOverlapPercent?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 28);
   const rows = await fetchSearchRows({ siteUrl, ...range, dimensions: ["query", "page"], rowLimit: 10000 }, true);
   const grouped = groupRowsByQuery(rows);
   const minImpressions = input.minImpressions ?? 50;
+  const minOverlapImpressions = input.minOverlapImpressions ?? 10;
+  const minOverlapPercent = input.minOverlapPercent ?? 1;
   const queries = queryOverlapGroups(grouped, input.minPages ?? 2, minImpressions, input.limit ?? 50);
-  const pagePairs = pagePairOverlaps(rows, minImpressions, input.limit ?? 50);
+  const pagePairs = pagePairOverlaps(rows, minOverlapImpressions, minOverlapPercent, input.limit ?? 50);
   return {
     siteUrl,
     range,
@@ -198,7 +201,8 @@ export async function queryPageOverlap(input: { siteUrl?: string; days?: number;
       pagePairCount: pagePairs.length,
       queryGroupCount: queries.length,
       highSeverityPairCount: pagePairs.filter((pair) => pair.severity === "high").length,
-      scoring: "Page-pair cannibalization score is a volume-scaled geometric mean of query overlap and balanced impression overlap. Balanced impressions use 2 × min(page impressions) per shared query to discount one-sided overlaps."
+      defaultFilters: { minOverlapImpressions, minOverlapPercent, minQueryGroupImpressions: minImpressions },
+      scoring: "Page-pair cannibalization score is the relative geometric mean of query overlap and balanced impression overlap. Balanced impressions use 2 × min(page impressions) per shared query to discount one-sided overlaps. Attention score combines relative severity with absolute balanced-overlap volume for prioritization."
     },
     pagePairs,
     queries
@@ -224,7 +228,7 @@ function queryOverlapGroups(grouped: Map<string, SearchRow[]>, minPages: number,
     .slice(0, limit);
 }
 
-function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: number, limit: number): PagePairOverlap[] {
+function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: number, minBalancedOverlapPercent: number, limit: number): PagePairOverlap[] {
   const pages = new Map<string, { queries: Set<string>; impressions: number }>();
   const rowsByQueryPage = new Map<string, Map<string, SearchRow>>();
   for (const row of rows) {
@@ -269,9 +273,7 @@ function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: numb
       const unionQueryCount = totalA.queries.size + totalB.queries.size - sharedQueryCount;
       const queryOverlapRatio = sharedQueryCount / Math.max(1, Math.min(totalA.queries.size, totalB.queries.size));
       const balancedImpressionRatio = balancedOverlap / Math.max(1, pairImpressions);
-      const relativeOverlapScore = Math.sqrt(queryOverlapRatio * balancedImpressionRatio) * 100;
-      const volumeMultiplier = Math.min(1, Math.log10(balancedOverlap + 1) / 3);
-      const cannibalizationScore = round(relativeOverlapScore * volumeMultiplier, 2);
+      const cannibalizationScore = round(Math.sqrt(queryOverlapRatio * balancedImpressionRatio) * 100, 2);
       return {
         pages: pairPages,
         totalQueries: { pageA: totalA.queries.size, pageB: totalB.queries.size, union: unionQueryCount },
@@ -292,6 +294,7 @@ function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: numb
           percentOfPair: round(balancedImpressionRatio * 100, 2)
         },
         cannibalizationScore,
+        attentionScore: Math.round(balancedOverlap * (cannibalizationScore / 100)),
         severity: overlapSeverity(cannibalizationScore),
         queries: sharedRows
           .sort((a, b) => Math.min(b.pageA.impressions, b.pageB.impressions) - Math.min(a.pageA.impressions, a.pageB.impressions))
@@ -306,8 +309,8 @@ function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: numb
           }))
       };
     })
-    .filter((pair) => pair.overlappingImpressions.balanced >= minBalancedOverlapImpressions)
-    .sort((a, b) => b.cannibalizationScore - a.cannibalizationScore || b.overlappingImpressions.balanced - a.overlappingImpressions.balanced)
+    .filter((pair) => pair.overlappingImpressions.balanced >= minBalancedOverlapImpressions && pair.overlappingImpressions.percentOfPair >= minBalancedOverlapPercent)
+    .sort((a, b) => b.attentionScore - a.attentionScore || b.cannibalizationScore - a.cannibalizationScore || b.overlappingImpressions.balanced - a.overlappingImpressions.balanced)
     .slice(0, limit);
 }
 
@@ -365,7 +368,7 @@ export async function actionPlan(input: { siteUrl?: string; days?: number; limit
     ...overlap.pagePairs.slice(0, 3).map((item) => {
       const primaryIndex = item.totalImpressions.pageA >= item.totalImpressions.pageB ? 0 : 1;
       return {
-        priorityScore: Math.round(item.overlappingImpressions.balanced * (item.cannibalizationScore / 100)),
+        priorityScore: item.attentionScore,
         action: "resolve_query_overlap",
         target: item.pages[primaryIndex],
         secondaryTarget: item.pages[primaryIndex === 0 ? 1 : 0],

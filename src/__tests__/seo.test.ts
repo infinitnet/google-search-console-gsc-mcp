@@ -51,7 +51,7 @@ test("queryPageOverlap ranks two-page cannibalization by balanced query and impr
   } as any;
   setClientsForTests({ searchConsole: mock });
 
-  const result = await queryPageOverlap({ siteUrl: "sc-domain:example.com", days: 28, minImpressions: 1, limit: 10 });
+  const result = await queryPageOverlap({ siteUrl: "sc-domain:example.com", days: 28, minImpressions: 1, minOverlapImpressions: 1, minOverlapPercent: 0, limit: 10 });
 
   assert.equal(result.summary.pagePairCount, 2);
   assert.equal(result.summary.queryGroupCount, 3);
@@ -73,6 +73,11 @@ test("queryPageOverlap ranks two-page cannibalization by balanced query and impr
 
   assert.equal(result.queries[0]!.query, "shared-a");
   assert.equal(result.queries[0]!.pages.length, 2);
+
+  const defaultResult = await queryPageOverlap({ siteUrl: "sc-domain:example.com", days: 28, minImpressions: 1, limit: 10 });
+  assert.equal(defaultResult.summary.defaultFilters.minOverlapImpressions, 10);
+  assert.equal(defaultResult.summary.defaultFilters.minOverlapPercent, 1);
+  assert.equal(defaultResult.pagePairs.some((pair) => pair.pages.includes("https://example.com/c")), false);
 });
 
 test("actionPlan uses page-pair overlap output for cannibalization recommendations", async () => {
