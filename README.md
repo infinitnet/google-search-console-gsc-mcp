@@ -41,13 +41,13 @@ Every tool returns a structured JSON response envelope so the assistant can dist
 
 ## Install from npm
 
-After the package is published, you can run it without cloning the repository:
+The npm package is the recommended way to run this MCP server. You can start it directly with `npx` without cloning the repository:
 
 ```bash
 npx -y @infinitnet/google-search-console-gsc-mcp-server
 ```
 
-Or install it globally and run the short binary name:
+For a persistent local install, install it globally and run the short binary name:
 
 ```bash
 npm install -g @infinitnet/google-search-console-gsc-mcp-server
