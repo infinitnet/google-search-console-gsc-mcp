@@ -102,7 +102,8 @@ jobs:
     needs: validate
     if: needs.validate.outputs.publish == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: npm
+    environment:
+      name: npm
     permissions:
       contents: read
       id-token: write
