@@ -131,7 +131,7 @@ On first use, the server opens your browser, receives the callback on `127.0.0.1
 ~/.config/infinitnet-google-search-console-gsc-mcp/oauth-token.json
 ```
 
-Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONFIG_DIR`. If you used an older release that wrote tokens under `~/.config/gsc-mcp/`, either move the token files into the new directory or set `GSC_CONFIG_DIR=~/.config/gsc-mcp` during migration.
+Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONFIG_DIR`.
 
 OAuth scopes used by this server:
 
