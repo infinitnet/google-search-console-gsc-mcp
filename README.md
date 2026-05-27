@@ -79,7 +79,7 @@ Before configuring either mode:
 
 1. Create or select a Google Cloud project.
 2. In Google Cloud **APIs & Services > Library**, enable **Google Search Console API** (`searchconsole.googleapis.com`).
-3. Enable **Indexing API** (`indexing.googleapis.com`) only if you plan to use `gsc_index_notify` or `gsc_index_notify_batch`; write tools are disabled by default in this server.
+3. Enable **Indexing API** (`indexing.googleapis.com`) only if you plan to use `gsc_index_notify` or `gsc_index_notify_batch`; write tools can be disabled globally with `GSC_ENABLE_WRITE_TOOLS=false`.
 4. Make sure the Google identity you will use can access the relevant Search Console property. Search Console property strings must match exactly, for example `sc-domain:example.com` or `https://www.example.com/`.
 
 Official setup references: [Search Console API authorization](https://developers.google.com/webmaster-tools/v1/how-tos/authorizing), [Google API Console API management](https://support.google.com/googleapi/answer/7037264), [Search Console users and permissions](https://support.google.com/webmasters/answer/7687615), [service account keys](https://cloud.google.com/iam/docs/keys-create-delete), [OAuth clients](https://support.google.com/cloud/answer/15549257), and [Indexing API prerequisites](https://developers.google.com/search/apis/indexing-api/v3/prereqs).
@@ -94,7 +94,7 @@ Use this when the MCP server should authenticate as a Google Cloud service accou
 3. In Search Console, open the property as a verified owner and grant the service-account email access:
    - For read-only analytics/inspection workflows, add the service-account email under **Settings > Users and permissions** with the least privilege that works for your use case.
    - For Indexing API usage, Google documents adding the service account as a site owner.
-   - For sitemap submission or other write-like operations, grant sufficient Search Console permission for that action and enable this server's write-tool flags explicitly.
+   - For sitemap submission or other write-like operations, grant sufficient Search Console permission for that action. Set `GSC_ENABLE_WRITE_TOOLS=false` if you want a read-only deployment.
 4. Set one of these env vars in your MCP client config:
    - `GSC_KEY_FILE=/absolute/path/to/service-account.json`
    - `GSC_CREDENTIALS_PATH=/absolute/path/to/service-account.json`
@@ -135,7 +135,7 @@ Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONF
 
 OAuth scopes used by this server:
 
-- `https://www.googleapis.com/auth/webmasters` for Search Console API tools. Google documents this as read/write scope; this server keeps write tools disabled by default.
+- `https://www.googleapis.com/auth/webmasters` for Search Console API tools. Google documents this as read/write scope; set `GSC_ENABLE_WRITE_TOOLS=false` for a read-only deployment.
 - `https://www.googleapis.com/auth/indexing` for Indexing API tools when write tools and Indexing API are enabled. Indexing uses a separate scope-aware token cache file.
 
 ## Configure your MCP client
@@ -387,7 +387,7 @@ Tool: `gsc_sitemap_submit`
 }
 ```
 
-Sitemap operations are Search Console write operations. `gsc_sitemap_submit` is intended to be safe/idempotent, but it still notifies Google about the sitemap. It is disabled by default; set `GSC_ENABLE_WRITE_TOOLS=true` to allow write tools, and keep `GSC_ENABLE_SITEMAP_SUBMIT=true` to allow this specific tool.
+Sitemap operations are Search Console write operations. `gsc_sitemap_submit` is intended to be safe/idempotent, but it still notifies Google about the sitemap. Set `GSC_ENABLE_WRITE_TOOLS=false` to block all write tools, or `GSC_ENABLE_SITEMAP_SUBMIT=false` to block only sitemap submission.
 
 ### 10. Get site health
 
@@ -606,7 +606,7 @@ Tool: `gsc_index_notify_batch`
 }
 ```
 
-Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in-VideoObject pages. A successful notification does not guarantee crawling, indexing, or ranking changes. Indexing API tools are disabled by default; set `GSC_ENABLE_WRITE_TOOLS=true` to allow write tools, and keep `GSC_ENABLE_INDEXING_API=true` to allow this specific tool.
+Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in-VideoObject pages. A successful notification does not guarantee crawling, indexing, or ranking changes. Set `GSC_ENABLE_WRITE_TOOLS=false` to block all write tools, or `GSC_ENABLE_INDEXING_API=false` to block only Indexing API notification tools.
 
 ## Tool reference
 
@@ -623,7 +623,7 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `gsc_indexing_issue_scan` | Return only inspected URLs with issues | `site_url`, `urls` |
 | `gsc_sitemaps_list` | List sitemaps | `site_url` |
 | `gsc_sitemap_get` | Get one sitemap | `site_url`, `sitemap_url` |
-| `gsc_sitemap_submit` | Submit/resubmit sitemap (write tool; disabled unless write tools are enabled) | `site_url`, `sitemap_url` |
+| `gsc_sitemap_submit` | Submit/resubmit sitemap (write tool) | `site_url`, `sitemap_url` |
 | `gsc_site_health` | Site-level current/prior health | `site_url`, `days` |
 | `gsc_rank_lift_opportunities` | Near-page-one opportunities | `site_url`, `days`, `min_impressions`, `max_position` |
 | `gsc_ctr_gap_pages` | CTR underperformance opportunities | `site_url`, `days`, `min_impressions` |
@@ -636,8 +636,8 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `gsc_action_plan` | Prioritized SEO recommendations | `site_url`, `days`, `limit` |
 | `gsc_claim_check` | Verify a numeric claim | `site_url`, `claim`, `metric`, `expected`, optional filters |
 | `gsc_multi_property_health` | Compare up to 20 properties | `site_urls`, `days` |
-| `gsc_index_notify` | Notify one URL update/delete (write tool; disabled unless write tools are enabled) | `url`, `action` |
-| `gsc_index_notify_batch` | Notify up to 200 URLs (write tool; disabled unless write tools are enabled) | `urls`, `action` |
+| `gsc_index_notify` | Notify one URL update/delete (write tool) | `url`, `action` |
+| `gsc_index_notify_batch` | Notify up to 200 URLs (write tool) | `urls`, `action` |
 
 ## Environment variables
 
@@ -658,9 +658,9 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `GSC_SITE_URL` | unset | Optional fallback property if a tool call omits `site_url`. |
 | `GSC_SITE_URLS` | unset | Optional comma-separated fallback list for multi-property tools. |
 | `GSC_DATA_STATE` | `all` | Search Analytics data state: `all` or `final`. |
-| `GSC_ENABLE_WRITE_TOOLS` | `false` | Enables external write operations when set to `true`. Read-only tools work without this. |
-| `GSC_ENABLE_SITEMAP_SUBMIT` | `true` when write tools are enabled | Set to `false` to keep sitemap submission disabled even when write tools are enabled. |
-| `GSC_ENABLE_INDEXING_API` | `true` when write tools are enabled | Set to `false` to keep Indexing API notification tools disabled even when write tools are enabled. |
+| `GSC_ENABLE_WRITE_TOOLS` | `true` | Set to `false` to block external write operations. Read-only tools still work. |
+| `GSC_ENABLE_SITEMAP_SUBMIT` | `true` | Set to `false` to keep sitemap submission disabled even when other write tools are enabled. |
+| `GSC_ENABLE_INDEXING_API` | `true` | Set to `false` to keep Indexing API notification tools disabled even when other write tools are enabled. |
 
 ## Response format
 

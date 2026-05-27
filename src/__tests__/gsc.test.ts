@@ -89,8 +89,8 @@ test("periodCompare preserves composite keys containing delimiter-like text", as
   assert.deepEqual(result.rows[0]!.keys, key);
 });
 
-test("indexNotify is disabled by default unless write tools are enabled", async () => {
-  await withEnv({ GSC_ENABLE_WRITE_TOOLS: undefined, GSC_ENABLE_INDEXING_API: undefined }, async () => {
+test("indexNotify respects the global write-tools opt-out", async () => {
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: "false", GSC_ENABLE_INDEXING_API: undefined }, async () => {
     await assert.rejects(
       () => indexNotify({ url: "https://example.com/job/a" }),
       /disabled/
@@ -107,8 +107,8 @@ test("urlInspect calls URL Inspection API", async () => {
   assert.deepEqual(calls[0].requestBody, { siteUrl: "sc-domain:example.com", inspectionUrl: "https://example.com/a" });
 });
 
-test("sitemapSubmit is disabled by default unless write tools are enabled", async () => {
-  await withEnv({ GSC_ENABLE_WRITE_TOOLS: undefined, GSC_ENABLE_SITEMAP_SUBMIT: undefined }, async () => {
+test("sitemapSubmit respects the global write-tools opt-out", async () => {
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: "false", GSC_ENABLE_SITEMAP_SUBMIT: undefined }, async () => {
     await assert.rejects(
       () => sitemapSubmit({ siteUrl: "https://example.com/", sitemapUrl: "https://example.com/sitemap.xml" }),
       /disabled/
@@ -116,11 +116,11 @@ test("sitemapSubmit is disabled by default unless write tools are enabled", asyn
   });
 });
 
-test("sitemapSubmit calls sitemaps.submit when write tools are enabled", async () => {
+test("sitemapSubmit calls sitemaps.submit by default", async () => {
   const calls: any[] = [];
   const mock = { sitemaps: { submit: async (arg: any) => { calls.push(arg); return { data: {} }; } } } as any;
   setClientsForTests({ searchConsole: mock });
-  await withEnv({ GSC_ENABLE_WRITE_TOOLS: "true", GSC_ENABLE_SITEMAP_SUBMIT: "true" }, async () => {
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: undefined, GSC_ENABLE_SITEMAP_SUBMIT: undefined }, async () => {
     const result = await sitemapSubmit({ siteUrl: "https://example.com/", sitemapUrl: "https://example.com/sitemap.xml" });
     assert.equal(result.submitted, true);
     assert.deepEqual(calls[0], { siteUrl: "https://example.com/", feedpath: "https://example.com/sitemap.xml" });

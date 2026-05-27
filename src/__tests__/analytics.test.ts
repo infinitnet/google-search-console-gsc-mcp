@@ -51,15 +51,21 @@ test("parseSiteUrls trims comma-separated values", () => {
 test("default OAuth token path uses the branded config directory", () => {
   const previousConfigDir = process.env.GSC_CONFIG_DIR;
   const previousTokenFile = process.env.GSC_OAUTH_TOKEN_FILE;
+  const previousWriteTools = process.env.GSC_ENABLE_WRITE_TOOLS;
   delete process.env.GSC_CONFIG_DIR;
   delete process.env.GSC_OAUTH_TOKEN_FILE;
+  delete process.env.GSC_ENABLE_WRITE_TOOLS;
   try {
-    assert.match(getConfig().oauthTokenFile, new RegExp(`${DEFAULT_CONFIG_DIR_NAME}/oauth-token\\.json$`));
+    const config = getConfig();
+    assert.match(config.oauthTokenFile, new RegExp(`${DEFAULT_CONFIG_DIR_NAME}/oauth-token\\.json$`));
+    assert.equal(config.writeToolsEnabled, true);
   } finally {
     if (previousConfigDir === undefined) delete process.env.GSC_CONFIG_DIR;
     else process.env.GSC_CONFIG_DIR = previousConfigDir;
     if (previousTokenFile === undefined) delete process.env.GSC_OAUTH_TOKEN_FILE;
     else process.env.GSC_OAUTH_TOKEN_FILE = previousTokenFile;
+    if (previousWriteTools === undefined) delete process.env.GSC_ENABLE_WRITE_TOOLS;
+    else process.env.GSC_ENABLE_WRITE_TOOLS = previousWriteTools;
   }
 });
 

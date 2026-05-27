@@ -49,7 +49,7 @@ export function getConfig(): ServerConfig {
   const dataStateRaw = process.env.GSC_DATA_STATE?.toLowerCase() ?? "all";
   const dataState = dataStateRaw === "final" ? "final" : "all";
   const configDir = expandPath(process.env.GSC_CONFIG_DIR) ?? path.join(os.homedir(), ".config", DEFAULT_CONFIG_DIR_NAME);
-  const writeToolsEnabled = boolEnv("GSC_ENABLE_WRITE_TOOLS", false);
+  const writeToolsEnabled = boolEnv("GSC_ENABLE_WRITE_TOOLS", true);
   return {
     authMode,
     keyFile: expandPath(process.env.GSC_KEY_FILE ?? process.env.GSC_CREDENTIALS_PATH ?? process.env.GOOGLE_APPLICATION_CREDENTIALS),
