@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dateRangeForDays, normalizeRows, pctChange, previousRange, summarizeRows } from "../analytics.js";
+import { dateRangeForDays, fetchSearchRowsWithMetadata, normalizeRows, pctChange, previousRange, summarizeRows } from "../analytics.js";
 import { DEFAULT_CONFIG_DIR_NAME, getConfig, parseSiteUrls } from "../config.js";
 import { ok } from "../response.js";
+import { resetClientsForTests, setClientsForTests } from "../auth.js";
+
+test.afterEach(() => resetClientsForTests());
 
 test("summarizeRows computes weighted CTR and weighted average position", () => {
   const rows = normalizeRows([
@@ -76,4 +79,101 @@ test("ok response envelope is structured JSON text", () => {
   assert.equal(payload.tool, "tool");
   assert.deepEqual(payload.data, { result: true });
   assert.ok(payload.meta.generatedAt);
+});
+
+test("fetchSearchRowsWithMetadata reports row-limit coverage and API limits", async () => {
+  const requestBodies: any[] = [];
+  const mock = {
+    searchanalytics: {
+      query: async ({ requestBody }: any) => {
+        requestBodies.push(requestBody);
+        return {
+          data: {
+            rows: [
+              { keys: ["a"], clicks: 2, impressions: 20, ctr: 0.1, position: 3 },
+              { keys: ["b"], clicks: 1, impressions: 10, ctr: 0.1, position: 5 }
+            ]
+          }
+        };
+      }
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await fetchSearchRowsWithMetadata({
+    siteUrl: "sc-domain:example.com",
+    startDate: "2026-01-01",
+    endDate: "2026-01-02",
+    dimensions: ["query"],
+    rowLimit: 2
+  }, true);
+
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.sampling.coverageLabel, "top_returned_rows");
+  assert.equal(result.sampling.requestedRowLimit, 2);
+  assert.equal(result.sampling.rowsFetched, 2);
+  assert.equal(result.sampling.limitReached, true);
+  assert.equal(result.sampling.requestedLimitReached, true);
+  assert.equal(result.sampling.possiblyTruncated, true);
+  assert.equal(result.sampling.apiMayOmitRows, true);
+  assert.equal(result.sampling.completeness, "capped_at_requested_limit");
+  assert.equal(result.sampling.sortBasis, "clicks_descending_with_arbitrary_tie_order");
+  assert.equal(result.sampling.apiLimits.maxRowsPerRequest, 25000);
+  assert.equal(result.sampling.apiLimits.performanceRowsPerDayPerTypePerProperty, 50000);
+  assert.deepEqual(requestBodies[0].dimensions, ["query"]);
+  assert.deepEqual(result.sampling.responseRowCounts, [2]);
+});
+
+test("fetchSearchRowsWithMetadata reports date sort basis and incomplete coverage", async () => {
+  const mock = {
+    searchanalytics: {
+      query: async () => ({
+        data: { rows: [{ keys: ["2026-01-01"], clicks: 1, impressions: 10, ctr: 0.1, position: 4 }] }
+      })
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await fetchSearchRowsWithMetadata({
+    siteUrl: "sc-domain:example.com",
+    startDate: "2026-01-01",
+    endDate: "2026-01-02",
+    dimensions: ["date"],
+    rowLimit: 2
+  }, true);
+
+  assert.equal(result.sampling.sortBasis, "date_ascending");
+  assert.equal(result.sampling.limitReached, false);
+  assert.equal(result.sampling.requestedLimitReached, false);
+  assert.equal(result.sampling.possiblyTruncated, false);
+  assert.equal(result.sampling.apiMayOmitRows, true);
+  assert.equal(result.sampling.completeness, "returned_less_than_requested_limit");
+});
+
+test("fetchSearchRowsWithMetadata clamps row limit and preserves start row", async () => {
+  const requestBodies: any[] = [];
+  const mock = {
+    searchanalytics: {
+      query: async ({ requestBody }: any) => {
+        requestBodies.push(requestBody);
+        return { data: { rows: [] } };
+      }
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await fetchSearchRowsWithMetadata({
+    siteUrl: "sc-domain:example.com",
+    startDate: "2026-01-01",
+    endDate: "2026-01-02",
+    dimensions: ["query"],
+    rowLimit: 999_999,
+    startRow: 25_000
+  }, true);
+
+  assert.equal(requestBodies[0].rowLimit, 25000);
+  assert.equal(requestBodies[0].startRow, 25000);
+  assert.equal(result.sampling.requestedRowLimit, 25000);
+  assert.equal(result.sampling.requestedStartRow, 25000);
+  assert.equal(result.sampling.rowsFetched, 0);
 });

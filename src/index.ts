@@ -11,7 +11,7 @@ import { fail, ok } from "./response.js";
 import { propertiesList, propertyDetails, searchAnalyticsCustom, periodCompare, pageQueryBreakdown, urlInspect, urlInspectBatch, sitemapList, sitemapDetails, sitemapSubmit, indexNotify, indexNotifyBatch } from "./gsc.js";
 import { actionPlan, alertScan, claimCheck, ctrGapCandidates, decayingPages, multiPropertyOverview, queryPageOverlap, rankLiftCandidates, sectionPerformance, siteHealthOverview, trafficLossDiagnostics, uncoveredDemand } from "./seo.js";
 
-const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.0.3" });
+const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.1.0" });
 
 const siteUrl = z.string().optional().describe("Exact GSC property chosen from gsc_properties_list, e.g. sc-domain:example.com or https://www.example.com/. If omitted, the server uses optional GSC_SITE_URL fallback.");
 const days = z.number().int().min(1).max(548).default(28).describe("Number of recent days to analyze, ending yesterday.");
@@ -24,6 +24,13 @@ const filterSchema = z.object({
 
 type ToolSchema = ZodRawShapeCompat;
 type ToolInput<S extends ToolSchema> = ShapeOutput<S>;
+
+function extraMetaFromData(data: unknown): Record<string, unknown> {
+  if (data && (typeof data === "object" || typeof data === "function") && "sampling" in data && !Object.prototype.propertyIsEnumerable.call(data, "sampling")) {
+    return { sampling: (data as { sampling: unknown }).sampling };
+  }
+  return {};
+}
 
 function register<S extends ToolSchema, T>(
   name: string,
@@ -38,7 +45,7 @@ function register<S extends ToolSchema, T>(
     try {
       const data = await handler(parsed);
       const resolvedSite = typeof rawInput.site_url === "string" ? rawInput.site_url : undefined;
-      return ok(name, rawInput, data, notes, resolvedSite);
+      return ok(name, rawInput, data, notes, resolvedSite, extraMetaFromData(data));
     } catch (error) {
       const resolvedSite = typeof rawInput.site_url === "string" ? rawInput.site_url : getConfig().siteUrl;
       return fail(name, rawInput, error, undefined, resolvedSite);

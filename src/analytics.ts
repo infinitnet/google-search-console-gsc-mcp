@@ -1,8 +1,9 @@
-import type { DateRange, DimensionFilter, MetricSummary, SearchDimension, SearchQueryRequest, SearchRow } from "./types.js";
+import type { DateRange, DimensionFilter, MetricSummary, SearchDimension, SearchQueryRequest, SearchRow, SearchRowsResult, SearchRowsSampling } from "./types.js";
 import { getConfig } from "./config.js";
 import { getSearchConsoleClient } from "./auth.js";
 
-const MAX_API_LIMIT = 25_000;
+export const MAX_API_LIMIT = 25_000;
+export const PERFORMANCE_ROWS_PER_DAY_PER_TYPE_PER_PROPERTY = 50_000;
 const MAX_DATE_RANGE_DAYS = 548;
 
 export function isoDate(date: Date): string {
@@ -79,14 +80,23 @@ export function buildFilterGroups(filters?: DimensionFilter[]) {
 }
 
 export async function fetchSearchRows(request: SearchQueryRequest, fetchAll = false): Promise<SearchRow[]> {
+  const result = await fetchSearchRowsWithMetadata(request, fetchAll);
+  return result.rows;
+}
+
+export async function fetchSearchRowsWithMetadata(request: SearchQueryRequest, fetchAll = false): Promise<SearchRowsResult> {
   const client = await getSearchConsoleClient();
   const rowLimit = boundedInteger(request.rowLimit, 1000, 1, MAX_API_LIMIT);
   const allRows: SearchRow[] = [];
   let startRow = boundedInteger(request.startRow, 0, 0, Number.MAX_SAFE_INTEGER);
+  const requestedStartRow = startRow;
   const pageSize = fetchAll ? Math.min(rowLimit, MAX_API_LIMIT) : rowLimit;
+  const dataState = request.dataState ?? getConfig().dataState;
+  const responseRowCounts: number[] = [];
 
   while (allRows.length < rowLimit) {
     const remaining = rowLimit - allRows.length;
+    const requestedPageRows = Math.min(pageSize, remaining);
     const response = await client.searchanalytics.query({
       siteUrl: request.siteUrl,
       requestBody: {
@@ -94,17 +104,62 @@ export async function fetchSearchRows(request: SearchQueryRequest, fetchAll = fa
         endDate: request.endDate,
         dimensions: request.dimensions,
         dimensionFilterGroups: buildFilterGroups(request.filters),
-        rowLimit: Math.min(pageSize, remaining),
+        rowLimit: requestedPageRows,
         startRow,
-        dataState: request.dataState ?? getConfig().dataState
+        dataState
       }
     });
     const rows = normalizeRows(response.data.rows);
+    responseRowCounts.push(rows.length);
     allRows.push(...rows);
-    if (!fetchAll || rows.length < Math.min(pageSize, remaining)) break;
+    if (!fetchAll || rows.length < requestedPageRows) break;
     startRow += rows.length;
   }
-  return allRows;
+
+  return {
+    rows: allRows,
+    sampling: buildSearchRowsSampling(request, rowLimit, requestedStartRow, pageSize, fetchAll, dataState, responseRowCounts, allRows.length)
+  };
+}
+
+function buildSearchRowsSampling(
+  request: SearchQueryRequest,
+  rowLimit: number,
+  requestedStartRow: number,
+  pageSize: number,
+  fetchAll: boolean,
+  dataState: "all" | "final",
+  responseRowCounts: number[],
+  rowsFetched: number
+): SearchRowsSampling {
+  const limitReached = rowsFetched >= rowLimit;
+  return {
+    coverageLabel: "top_returned_rows",
+    dateRange: { startDate: request.startDate, endDate: request.endDate },
+    dimensions: request.dimensions,
+    filtersApplied: request.filters ?? [],
+    dataState,
+    requestedRowLimit: rowLimit,
+    requestedStartRow,
+    rowsFetched,
+    pageSize,
+    pagesFetched: responseRowCounts.length,
+    responseRowCounts,
+    fetchAllWithinRequestedLimit: fetchAll,
+    limitReached,
+    requestedLimitReached: limitReached,
+    possiblyTruncated: limitReached,
+    apiMayOmitRows: true,
+    sortBasis: request.dimensions.includes("date") ? "date_ascending" : "clicks_descending_with_arbitrary_tie_order",
+    apiLimits: {
+      maxRowsPerRequest: MAX_API_LIMIT,
+      performanceRowsPerDayPerTypePerProperty: PERFORMANCE_ROWS_PER_DAY_PER_TYPE_PER_PROPERTY
+    },
+    completeness: limitReached ? "capped_at_requested_limit" : "returned_less_than_requested_limit",
+    note: limitReached
+      ? "The requested row limit was reached. Search Console may have additional rows beyond this result set, and the API can return top rows rather than every row under internal limits."
+      : "The API returned fewer rows than requested for this query. Search Console can still apply internal top-row limits, so treat this as returned coverage rather than proof of exhaustive site demand."
+  };
 }
 
 export function mapByKey(rows: SearchRow[], keyIndex = 0): Map<string, SearchRow> {

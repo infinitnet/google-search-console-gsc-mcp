@@ -416,7 +416,7 @@ Tool: `gsc_rank_lift_opportunities`
 }
 ```
 
-Use this for query-page pairs that rank near page one and may benefit from content improvements, internal links, or snippet refinement.
+Returns the same opportunities array as before; sampling metadata is exposed under response `meta.sampling`. Use this for query-page pairs that rank near page one and may benefit from content improvements, internal links, or snippet refinement.
 
 ### 12. Find CTR gap pages
 
@@ -431,7 +431,7 @@ Tool: `gsc_ctr_gap_pages`
 }
 ```
 
-CTR benchmarks are heuristics based on average position. Treat estimated extra clicks as prioritization guidance, not a guarantee.
+Returns the same pages array as before; sampling metadata is exposed under response `meta.sampling`. CTR benchmarks are heuristics based on average position. Treat estimated extra clicks as prioritization guidance, not a guarantee.
 
 ### 13. Find uncovered query demand
 
@@ -447,7 +447,7 @@ Tool: `gsc_uncovered_queries`
 }
 ```
 
-Use this to discover high-impression queries where the site appears but ranks poorly.
+Returns the same queries array as before; sampling metadata is exposed under response `meta.sampling`. Use this to discover high-impression queries where the site appears but ranks poorly.
 
 ### 14. Diagnose traffic losses
 
@@ -462,7 +462,7 @@ Tool: `gsc_traffic_loss`
 }
 ```
 
-Classifies likely causes as ranking decline, CTR decline, demand/SERP visibility decline, disappearance from returned rows, or mixed signal.
+Includes current/prior `sampling` metadata and classifies likely causes as ranking decline, CTR decline, demand/SERP visibility decline, disappearance from returned rows, or mixed signal.
 
 ### 15. Detect content decay
 
@@ -476,7 +476,7 @@ Tool: `gsc_content_decay`
 }
 ```
 
-Looks for pages with three consecutive 30-day click declines.
+Returns the same decaying-pages array as before; sampling metadata is exposed under response `meta.sampling`. Looks for pages with three consecutive 30-day click declines.
 
 ### 16. Find query overlap between pages
 
@@ -508,6 +508,42 @@ volume for prioritization. By default, `min_overlap_impressions` and
 filter query-level groups by total query impressions. Query-level groups remain
 available in `queries` for consolidation context.
 
+### SEO sampling and data coverage metadata
+
+SEO analysis tools include sampling metadata so clients can see how much Search Analytics data the recommendation used. Google's [Search Analytics query reference](https://developers.google.com/webmaster-tools/v1/searchanalytics/query) documents that rows are grouped by requested dimensions, non-date results are sorted by clicks descending, date-grouped results are sorted by date ascending, `rowLimit` accepts 1-25,000 rows per request, and the API can return top rows rather than every matching row under internal limits. Search Console Help also documents a [performance-data export cap](https://support.google.com/webmasters/answer/12919192) of 50K rows per day per type per property.
+
+Array-returning tools keep their `data` arrays for compatibility and put sampling in envelope `meta.sampling`; object-returning SEO tools include sampling inside `data.sampling`. A single sampling object looks like:
+
+```json
+{
+  "coverageLabel": "top_returned_rows",
+  "dateRange": { "startDate": "2026-04-29", "endDate": "2026-05-26" },
+  "dimensions": ["query", "page"],
+  "filtersApplied": [],
+  "dataState": "all",
+  "requestedRowLimit": 5000,
+  "requestedStartRow": 0,
+  "rowsFetched": 5000,
+  "pageSize": 5000,
+  "pagesFetched": 1,
+  "responseRowCounts": [5000],
+  "fetchAllWithinRequestedLimit": true,
+  "limitReached": true,
+  "requestedLimitReached": true,
+  "possiblyTruncated": true,
+  "apiMayOmitRows": true,
+  "sortBasis": "clicks_descending_with_arbitrary_tie_order",
+  "apiLimits": {
+    "maxRowsPerRequest": 25000,
+    "performanceRowsPerDayPerTypePerProperty": 50000
+  },
+  "completeness": "capped_at_requested_limit",
+  "note": "The requested row limit was reached..."
+}
+```
+
+`requestedLimitReached` is true when `rowsFetched` reaches the requested row limit; `possiblyTruncated` mirrors that value for compatibility. `apiMayOmitRows` remains true because Google documents that Search Analytics can return top rows rather than every matching row. Google does not return a total available row count for `searchanalytics.query`, so this metadata avoids claiming exhaustive coverage.
+
 ### 17. Analyze a site section
 
 Tool: `gsc_section_performance`
@@ -521,7 +557,7 @@ Tool: `gsc_section_performance`
 }
 ```
 
-Returns aggregate section metrics, top pages, and top queries for URLs containing the path fragment.
+Returns aggregate section metrics, top pages, top queries, and separate page/query `sampling` metadata for URLs containing the path fragment.
 
 ### 18. Scan for recent alerts
 
@@ -551,7 +587,7 @@ Tool: `gsc_action_plan`
 }
 ```
 
-Combines multiple signals into prioritized recommendations. Treat recommendations as deterministic analysis output that still needs human SEO judgment before implementation.
+Combines multiple signals into prioritized recommendations and includes per-source `sampling` metadata under `data.sampling`. Treat recommendations as deterministic analysis output that still needs human SEO judgment before implementation.
 
 ### 20. Verify a numeric claim
 

@@ -6,13 +6,13 @@ const DEFAULT_NOTES = [
   "Search Console data may include fresh unfinalized rows unless GSC_DATA_STATE=final is set."
 ];
 
-export function ok<T>(tool: string, input: Record<string, unknown>, data: T, notes: string[] = [], siteUrl?: string) {
+export function ok<T>(tool: string, input: Record<string, unknown>, data: T, notes: string[] = [], siteUrl?: string, extraMeta: Record<string, unknown> = {}) {
   return asText<T>({
     ok: true,
     tool,
     input,
     data,
-    meta: { generatedAt: new Date().toISOString(), source: SOURCE, siteUrl, notes: [...DEFAULT_NOTES, ...notes] }
+    meta: { generatedAt: new Date().toISOString(), source: SOURCE, siteUrl, notes: [...DEFAULT_NOTES, ...notes], ...extraMeta }
   });
 }
 

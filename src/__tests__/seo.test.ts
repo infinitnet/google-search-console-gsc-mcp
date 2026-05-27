@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { actionPlan, alertScan, expectedCtr, queryPageOverlap } from "../seo.js";
+import { actionPlan, alertScan, expectedCtr, queryPageOverlap, rankLiftCandidates } from "../seo.js";
 import { resetClientsForTests, setClientsForTests } from "../auth.js";
+import { server } from "../index.js";
 
 test.afterEach(() => resetClientsForTests());
 
@@ -55,6 +56,12 @@ test("queryPageOverlap ranks two-page cannibalization by balanced query and impr
 
   assert.equal(result.summary.pagePairCount, 2);
   assert.equal(result.summary.queryGroupCount, 3);
+  assert.equal(result.sampling.coverageLabel, "top_returned_rows");
+  assert.deepEqual(result.sampling.dimensions, ["query", "page"]);
+  assert.equal(result.sampling.rowsFetched, 8);
+  assert.equal(result.sampling.possiblyTruncated, false);
+  assert.equal(result.sampling.apiMayOmitRows, true);
+  assert.equal(result.sampling.apiLimits.maxRowsPerRequest, 25000);
 
   const severe = result.pagePairs[0]!;
   assert.deepEqual(severe.pages, ["https://example.com/a", "https://example.com/b"]);
@@ -80,6 +87,47 @@ test("queryPageOverlap ranks two-page cannibalization by balanced query and impr
   assert.equal(defaultResult.pagePairs.some((pair) => pair.pages.includes("https://example.com/c")), false);
 });
 
+test("rankLiftCandidates keeps array result shape with non-enumerable sampling", async () => {
+  const mock = {
+    searchanalytics: {
+      query: async () => ({
+        data: { rows: [{ keys: ["query", "https://example.com/a"], clicks: 3, impressions: 300, ctr: 0.01, position: 8 }] }
+      })
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await rankLiftCandidates({ siteUrl: "sc-domain:example.com", minImpressions: 1, limit: 10 });
+
+  assert.equal(Array.isArray(result), true);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]!.query, "query");
+  assert.equal(Object.prototype.propertyIsEnumerable.call(result, "sampling"), false);
+  assert.equal((result.sampling as { coverageLabel: string }).coverageLabel, "top_returned_rows");
+  assert.equal(JSON.stringify(result).includes("sampling"), false);
+});
+
+test("rank lift MCP tool keeps data array and exposes sampling in envelope meta", async () => {
+  const mock = {
+    searchanalytics: {
+      query: async () => ({
+        data: { rows: [{ keys: ["query", "https://example.com/a"], clicks: 3, impressions: 300, ctr: 0.01, position: 8 }] }
+      })
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const tool = (server as any)._registeredTools.gsc_rank_lift_opportunities;
+  const response = await tool.handler({ site_url: "sc-domain:example.com", min_impressions: 1, limit: 10 }, {});
+  const payload = JSON.parse(response.content[0].text);
+
+  assert.equal(Array.isArray(payload.data), true);
+  assert.equal(payload.data[0].query, "query");
+  assert.equal(payload.data.sampling, undefined);
+  assert.equal(payload.meta.sampling.coverageLabel, "top_returned_rows");
+  assert.deepEqual(payload.meta.sampling.dimensions, ["query", "page"]);
+});
+
 test("actionPlan uses page-pair overlap output for cannibalization recommendations", async () => {
   const mock = {
     searchanalytics: {
@@ -103,6 +151,10 @@ test("actionPlan uses page-pair overlap output for cannibalization recommendatio
   setClientsForTests({ searchConsole: mock });
 
   const result = await actionPlan({ siteUrl: "sc-domain:example.com", days: 28, limit: 5 });
+
+  const sampling = result.sampling as { rankLift: { coverageLabel: string }; overlap: { dimensions: string[] } };
+  assert.equal(sampling.rankLift.coverageLabel, "top_returned_rows");
+  assert.deepEqual(sampling.overlap.dimensions, ["query", "page"]);
 
   const recommendation = result.recommendations.find((item) => item.action === "resolve_query_overlap") as any;
   assert.ok(recommendation);

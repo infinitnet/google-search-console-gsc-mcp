@@ -1,11 +1,18 @@
 import type { DimensionFilter, SearchRow } from "./types.js";
-import { dateRangeForDays, fetchSearchRows, previousRange, pctChange, round, summarizeRows } from "./analytics.js";
+import { dateRangeForDays, fetchSearchRowsWithMetadata, previousRange, pctChange, round, summarizeRows } from "./analytics.js";
 import { getConfig, resolveSiteUrl } from "./config.js";
 
 const CTR_CURVE = [0.285, 0.157, 0.11, 0.08, 0.072, 0.051, 0.04, 0.032, 0.028, 0.025];
 const MAX_MULTI_PROPERTY_SITES = 20;
 const MULTI_PROPERTY_CONCURRENCY = 4;
 const MAX_OVERLAP_PAGES_PER_QUERY = 50;
+
+type WithSampling<T extends object> = T & { readonly sampling: unknown };
+
+function withSampling<T extends object>(value: T, sampling: unknown): WithSampling<T> {
+  Object.defineProperty(value, "sampling", { value: sampling, enumerable: false });
+  return value as WithSampling<T>;
+}
 
 export function expectedCtr(position: number): number {
   if (position <= 1) return CTR_CURVE[0]!;
@@ -18,16 +25,17 @@ export async function siteHealthOverview(input: { siteUrl?: string; days?: numbe
   const days = input.days ?? 28;
   const current = dateRangeForDays(days);
   const prior = previousRange(days);
-  const [currentRows, priorRows] = await Promise.all([
-    fetchSearchRows({ siteUrl, ...current, dimensions: ["date"], rowLimit: days }, true),
-    fetchSearchRows({ siteUrl, ...prior, dimensions: ["date"], rowLimit: days }, true)
+  const [currentResult, priorResult] = await Promise.all([
+    fetchSearchRowsWithMetadata({ siteUrl, ...current, dimensions: ["date"], rowLimit: days }, true),
+    fetchSearchRowsWithMetadata({ siteUrl, ...prior, dimensions: ["date"], rowLimit: days }, true)
   ]);
-  const c = summarizeRows(currentRows);
-  const p = summarizeRows(priorRows);
+  const c = summarizeRows(currentResult.rows);
+  const p = summarizeRows(priorResult.rows);
   return {
     siteUrl,
     currentRange: current,
     priorRange: prior,
+    sampling: { current: currentResult.sampling, prior: priorResult.sampling },
     current: c,
     prior: p,
     change: {
@@ -44,10 +52,10 @@ export async function siteHealthOverview(input: { siteUrl?: string; days?: numbe
 export async function rankLiftCandidates(input: { siteUrl?: string; days?: number; minImpressions?: number; maxPosition?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 28);
-  const rows = await fetchSearchRows({ siteUrl, ...range, dimensions: ["query", "page"], rowLimit: 5000 }, true);
+  const { rows, sampling } = await fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["query", "page"], rowLimit: 5000 }, true);
   const minImpressions = input.minImpressions ?? 100;
   const maxPosition = input.maxPosition ?? 15;
-  return rows
+  const opportunities = rows
     .filter((row) => row.impressions >= minImpressions && row.position >= 4 && row.position <= maxPosition)
     .map((row) => ({
       query: row.keys[0],
@@ -60,14 +68,15 @@ export async function rankLiftCandidates(input: { siteUrl?: string; days?: numbe
     }))
     .sort((a, b) => b.estimatedExtraClicks - a.estimatedExtraClicks)
     .slice(0, input.limit ?? 50);
+  return withSampling(opportunities, sampling);
 }
 
 export async function ctrGapCandidates(input: { siteUrl?: string; days?: number; minImpressions?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 28);
-  const rows = await fetchSearchRows({ siteUrl, ...range, dimensions: ["page"], rowLimit: 5000 }, true);
+  const { rows, sampling } = await fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["page"], rowLimit: 5000 }, true);
   const minImpressions = input.minImpressions ?? 300;
-  return rows
+  const pages = rows
     .filter((row) => row.impressions >= minImpressions && row.position <= 20)
     .map((row) => {
       const benchmark = expectedCtr(row.position);
@@ -86,17 +95,19 @@ export async function ctrGapCandidates(input: { siteUrl?: string; days?: number;
     .filter((row) => row.estimatedExtraClicks > 0)
     .sort((a, b) => b.estimatedExtraClicks - a.estimatedExtraClicks)
     .slice(0, input.limit ?? 50);
+  return withSampling(pages, sampling);
 }
 
 export async function uncoveredDemand(input: { siteUrl?: string; days?: number; minImpressions?: number; minPosition?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 90);
-  const rows = await fetchSearchRows({ siteUrl, ...range, dimensions: ["query"], rowLimit: 5000 }, true);
-  return rows
+  const { rows, sampling } = await fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["query"], rowLimit: 5000 }, true);
+  const queries = rows
     .filter((row) => row.impressions >= (input.minImpressions ?? 50) && row.position >= (input.minPosition ?? 20))
     .map((row) => ({ query: row.keys[0], clicks: row.clicks, impressions: row.impressions, position: round(row.position, 1), suggestedIntent: inferIntent(row.keys[0] ?? "") }))
     .sort((a, b) => b.impressions - a.impressions)
     .slice(0, input.limit ?? 50);
+  return withSampling(queries, sampling);
 }
 
 export async function trafficLossDiagnostics(input: { siteUrl?: string; days?: number; minPriorClicks?: number; limit?: number }) {
@@ -104,10 +115,12 @@ export async function trafficLossDiagnostics(input: { siteUrl?: string; days?: n
   const days = input.days ?? 28;
   const current = dateRangeForDays(days);
   const prior = previousRange(days);
-  const [currentRows, priorRows] = await Promise.all([
-    fetchSearchRows({ siteUrl, ...current, dimensions: ["page"], rowLimit: 5000 }, true),
-    fetchSearchRows({ siteUrl, ...prior, dimensions: ["page"], rowLimit: 5000 }, true)
+  const [currentResult, priorResult] = await Promise.all([
+    fetchSearchRowsWithMetadata({ siteUrl, ...current, dimensions: ["page"], rowLimit: 5000 }, true),
+    fetchSearchRowsWithMetadata({ siteUrl, ...prior, dimensions: ["page"], rowLimit: 5000 }, true)
   ]);
+  const currentRows = currentResult.rows;
+  const priorRows = priorResult.rows;
   const currentMap = new Map(currentRows.map((row) => [row.keys[0], row]));
   const minPriorClicks = input.minPriorClicks ?? 5;
   const losses = priorRows
@@ -134,16 +147,19 @@ export async function trafficLossDiagnostics(input: { siteUrl?: string; days?: n
     .filter((row) => row.clickDelta < 0)
     .sort((a, b) => a.clickDelta - b.clickDelta)
     .slice(0, input.limit ?? 50);
-  return { siteUrl, current, prior, losses };
+  return { siteUrl, current, prior, sampling: { current: currentResult.sampling, prior: priorResult.sampling }, losses };
 }
 
 export async function decayingPages(input: { siteUrl?: string; minOldestClicks?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const ranges = [dateRangeForDays(30, 1), dateRangeForDays(30, 31), dateRangeForDays(30, 61)];
-  const [recent, middle, oldest] = await Promise.all(ranges.map((range) => fetchSearchRows({ siteUrl, ...range, dimensions: ["page"], rowLimit: 5000 }, true)));
+  const [recentResult, middleResult, oldestResult] = await Promise.all(ranges.map((range) => fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["page"], rowLimit: 5000 }, true)));
+  const recent = recentResult.rows;
+  const middle = middleResult.rows;
+  const oldest = oldestResult.rows;
   const recentMap = new Map(recent.map((row) => [row.keys[0], row]));
   const middleMap = new Map(middle.map((row) => [row.keys[0], row]));
-  return oldest
+  const pages = oldest
     .filter((old) => old.clicks >= (input.minOldestClicks ?? 10))
     .map((old) => ({ old, mid: middleMap.get(old.keys[0]), recent: recentMap.get(old.keys[0]) }))
     .filter(({ old, mid, recent }) => mid && recent && old.clicks > mid.clicks && mid.clicks > recent.clicks)
@@ -159,6 +175,7 @@ export async function decayingPages(input: { siteUrl?: string; minOldestClicks?:
     }))
     .sort((a, b) => b.totalClickLoss - a.totalClickLoss)
     .slice(0, input.limit ?? 50);
+  return withSampling(pages, { recent: recentResult.sampling, middle: middleResult.sampling, oldest: oldestResult.sampling });
 }
 
 type QueryOverlapGroup = {
@@ -190,7 +207,7 @@ type PagePairOverlap = {
 export async function queryPageOverlap(input: { siteUrl?: string; days?: number; minImpressions?: number; minPages?: number; minOverlapImpressions?: number; minOverlapPercent?: number; limit?: number }) {
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 28);
-  const rows = await fetchSearchRows({ siteUrl, ...range, dimensions: ["query", "page"], rowLimit: 10000 }, true);
+  const { rows, sampling } = await fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["query", "page"], rowLimit: 10000 }, true);
   const grouped = groupRowsByQuery(rows);
   const minImpressions = input.minImpressions ?? 50;
   const minOverlapImpressions = input.minOverlapImpressions ?? 10;
@@ -200,6 +217,7 @@ export async function queryPageOverlap(input: { siteUrl?: string; days?: number;
   return {
     siteUrl,
     range,
+    sampling,
     summary: {
       pagePairCount: pagePairs.length,
       queryGroupCount: queries.length,
@@ -331,14 +349,17 @@ export async function sectionPerformance(input: { siteUrl?: string; pathContains
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const range = dateRangeForDays(input.days ?? 28);
   const filters: DimensionFilter[] = [{ dimension: "page", operator: "contains", expression: input.pathContains }];
-  const [pages, queries] = await Promise.all([
-    fetchSearchRows({ siteUrl, ...range, dimensions: ["page"], filters, rowLimit: 5000 }, true),
-    fetchSearchRows({ siteUrl, ...range, dimensions: ["query"], filters, rowLimit: 5000 }, true)
+  const [pagesResult, queriesResult] = await Promise.all([
+    fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["page"], filters, rowLimit: 5000 }, true),
+    fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions: ["query"], filters, rowLimit: 5000 }, true)
   ]);
+  const pages = pagesResult.rows;
+  const queries = queriesResult.rows;
   return {
     siteUrl,
     range,
     pathContains: input.pathContains,
+    sampling: { pages: pagesResult.sampling, queries: queriesResult.sampling },
     summary: summarizeRows(pages),
     pageCount: pages.length,
     topPages: pages.sort((a, b) => b.clicks - a.clicks).slice(0, input.limit ?? 10).map((row) => ({ page: row.keys[0], clicks: row.clicks, impressions: row.impressions, position: round(row.position, 1) })),
@@ -355,7 +376,7 @@ export async function alertScan(input: { siteUrl?: string; days?: number; positi
     if (loss.ctrDeltaPercent !== null && loss.ctrDeltaPercent <= -(input.ctrDropPercent ?? 30)) out.push({ severity: loss.ctrDeltaPercent <= -60 ? "critical" : "warning", type: "ctr_loss", target: loss.page ?? "", detail: `CTR changed ${loss.ctrDeltaPercent}% (${loss.priorCtr}% -> ${loss.currentCtr}%).` });
     return out;
   });
-  return { siteUrl: losses.siteUrl, current: losses.current, prior: losses.prior, counts: countSeverities(alerts), alerts };
+  return { siteUrl: losses.siteUrl, current: losses.current, prior: losses.prior, sampling: losses.sampling, counts: countSeverities(alerts), alerts };
 }
 
 export async function actionPlan(input: { siteUrl?: string; days?: number; limit?: number }) {
@@ -383,7 +404,11 @@ export async function actionPlan(input: { siteUrl?: string; days?: number; limit
     }),
     ...decay.slice(0, 3).map((item) => ({ priorityScore: item.totalClickLoss, action: "refresh_declining_content", target: item.page, reason: `Three-period click decline; lost ${item.totalClickLoss} clicks.` }))
   ].sort((a, b) => b.priorityScore - a.priorityScore).slice(0, limit);
-  return { generatedFrom: { rankLift: rank.length, ctrGaps: ctr.length, uncoveredDemand: gaps.length, overlap: overlap.pagePairs.length, decay: decay.length }, recommendations };
+  return {
+    generatedFrom: { rankLift: rank.length, ctrGaps: ctr.length, uncoveredDemand: gaps.length, overlap: overlap.pagePairs.length, decay: decay.length },
+    sampling: { rankLift: rank.sampling, ctrGaps: ctr.sampling, uncoveredDemand: gaps.sampling, overlap: overlap.sampling, decay: decay.sampling },
+    recommendations
+  };
 }
 
 export async function claimCheck(input: { siteUrl?: string; claim: string; metric: "clicks" | "impressions" | "ctr" | "position"; expected: number; days?: number; pageUrl?: string; query?: string }) {
@@ -393,11 +418,11 @@ export async function claimCheck(input: { siteUrl?: string; claim: string; metri
   if (input.pageUrl) filters.push({ dimension: "page", operator: "equals", expression: input.pageUrl });
   if (input.query) filters.push({ dimension: "query", operator: "equals", expression: input.query });
   const dimensions = filters.length ? filters.map((f) => f.dimension) : ["date" as const];
-  const rows = await fetchSearchRows({ siteUrl, ...range, dimensions, filters, rowLimit: 5000 }, true);
+  const { rows, sampling } = await fetchSearchRowsWithMetadata({ siteUrl, ...range, dimensions, filters, rowLimit: 5000 }, true);
   const summary = summarizeRows(rows);
   const actual = summary[input.metric];
   const tolerance = input.metric === "position" ? 0.5 : Math.max(1, Math.abs(input.expected) * 0.05);
-  return { siteUrl, claim: input.claim, metric: input.metric, expected: input.expected, actual, tolerance, verified: Math.abs(actual - input.expected) <= tolerance, range, rowsConsidered: rows.length };
+  return { siteUrl, claim: input.claim, metric: input.metric, expected: input.expected, actual, tolerance, verified: Math.abs(actual - input.expected) <= tolerance, range, rowsConsidered: rows.length, sampling };
 }
 
 export async function multiPropertyOverview(input: { siteUrls?: string[]; days?: number }) {
