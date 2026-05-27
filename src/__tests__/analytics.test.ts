@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { dateRangeForDays, normalizeRows, pctChange, previousRange, summarizeRows } from "../analytics.js";
-import { parseSiteUrls } from "../config.js";
+import { DEFAULT_CONFIG_DIR_NAME, getConfig, parseSiteUrls } from "../config.js";
 import { ok } from "../response.js";
 
 test("summarizeRows computes weighted CTR and weighted average position", () => {
@@ -46,6 +46,21 @@ test("normalizeRows coerces non-finite numeric values to zero", () => {
 
 test("parseSiteUrls trims comma-separated values", () => {
   assert.deepEqual(parseSiteUrls(" sc-domain:a.com, https://b.com/ ,,"), ["sc-domain:a.com", "https://b.com/"]);
+});
+
+test("default OAuth token path uses the branded config directory", () => {
+  const previousConfigDir = process.env.GSC_CONFIG_DIR;
+  const previousTokenFile = process.env.GSC_OAUTH_TOKEN_FILE;
+  delete process.env.GSC_CONFIG_DIR;
+  delete process.env.GSC_OAUTH_TOKEN_FILE;
+  try {
+    assert.match(getConfig().oauthTokenFile, new RegExp(`${DEFAULT_CONFIG_DIR_NAME}/oauth-token\\.json$`));
+  } finally {
+    if (previousConfigDir === undefined) delete process.env.GSC_CONFIG_DIR;
+    else process.env.GSC_CONFIG_DIR = previousConfigDir;
+    if (previousTokenFile === undefined) delete process.env.GSC_OAUTH_TOKEN_FILE;
+    else process.env.GSC_OAUTH_TOKEN_FILE = previousTokenFile;
+  }
 });
 
 test("ok response envelope is structured JSON text", () => {

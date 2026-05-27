@@ -3,6 +3,8 @@ import path from "node:path";
 
 export type AuthMode = "service_account" | "oauth";
 
+export const DEFAULT_CONFIG_DIR_NAME = "infinitnet-google-search-console-gsc-mcp";
+
 export interface ServerConfig {
   authMode: AuthMode;
   keyFile?: string;
@@ -46,7 +48,7 @@ export function getConfig(): ServerConfig {
   const siteUrl = process.env.GSC_SITE_URL?.trim() || siteUrls[0];
   const dataStateRaw = process.env.GSC_DATA_STATE?.toLowerCase() ?? "all";
   const dataState = dataStateRaw === "final" ? "final" : "all";
-  const configDir = expandPath(process.env.GSC_CONFIG_DIR) ?? path.join(os.homedir(), ".config", "gsc-mcp");
+  const configDir = expandPath(process.env.GSC_CONFIG_DIR) ?? path.join(os.homedir(), ".config", DEFAULT_CONFIG_DIR_NAME);
   const writeToolsEnabled = boolEnv("GSC_ENABLE_WRITE_TOOLS", false);
   return {
     authMode,

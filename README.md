@@ -75,13 +75,26 @@ When launched manually, the process waits for MCP JSON-RPC messages on stdin. In
 
 The server supports two auth modes. Both can list accessible properties with `gsc_properties_list`; follow-up tool calls should pass the chosen property as `site_url`.
 
+Before configuring either mode:
+
+1. Create or select a Google Cloud project.
+2. In Google Cloud **APIs & Services > Library**, enable **Google Search Console API** (`searchconsole.googleapis.com`).
+3. Enable **Indexing API** (`indexing.googleapis.com`) only if you plan to use `gsc_index_notify` or `gsc_index_notify_batch`; write tools are disabled by default in this server.
+4. Make sure the Google identity you will use can access the relevant Search Console property. Search Console property strings must match exactly, for example `sc-domain:example.com` or `https://www.example.com/`.
+
+Official setup references: [Search Console API authorization](https://developers.google.com/webmaster-tools/v1/how-tos/authorizing), [Google API Console API management](https://support.google.com/googleapi/answer/7037264), [Search Console users and permissions](https://support.google.com/webmasters/answer/7687615), [service account keys](https://cloud.google.com/iam/docs/keys-create-delete), [OAuth clients](https://support.google.com/cloud/answer/15549257), and [Indexing API prerequisites](https://developers.google.com/search/apis/indexing-api/v3/prereqs).
+
 ### Service-account mode
 
-Use this when you have a Google Cloud service account and can add its email to the relevant Search Console properties.
+Use this when the MCP server should authenticate as a Google Cloud service account. This is a good fit for server/agency workflows where you can explicitly grant the service-account email access to the Search Console properties it should read.
 
-1. Create a Google Cloud service account.
-2. Create/download a JSON key file.
-3. Add the service-account email as a user or owner in Google Search Console for each property it should access.
+1. In Google Cloud, go to **IAM & Admin > Service Accounts** and create a service account.
+   - The service account does not need a broad Google Cloud IAM role just to read Search Console data. Search Console access is granted in Search Console, not by project IAM.
+2. Create a JSON key for the service account: open the service account, go to **Keys > Add key > Create new key > JSON**, and download it. Store it securely and never commit it. Google only gives you the private key file at creation time.
+3. In Search Console, open the property as a verified owner and grant the service-account email access:
+   - For read-only analytics/inspection workflows, add the service-account email under **Settings > Users and permissions** with the least privilege that works for your use case.
+   - For Indexing API usage, Google documents adding the service account as a site owner.
+   - For sitemap submission or other write-like operations, grant sufficient Search Console permission for that action and enable this server's write-tool flags explicitly.
 4. Set one of these env vars in your MCP client config:
    - `GSC_KEY_FILE=/absolute/path/to/service-account.json`
    - `GSC_CREDENTIALS_PATH=/absolute/path/to/service-account.json`
@@ -90,7 +103,14 @@ Use this when you have a Google Cloud service account and can add its email to t
 
 ### OAuth mode
 
-Use this when the MCP server should act as a specific Google user. On first use, the server opens a local browser auth flow and stores a refresh token.
+Use this when the MCP server should act as a specific Google user. The Google user who completes the browser consent flow must already have access to the target Search Console property. You do **not** add the OAuth client ID to Search Console; Search Console permissions come from the signed-in Google user.
+
+1. In Google Cloud, configure the Google Auth Platform / OAuth consent screen for the project. For personal/internal testing, keep the app in testing and add your Google account as a test user if required by Google.
+2. Create an OAuth client:
+   - Recommended: **Desktop app** client. This server uses a local loopback callback at `http://127.0.0.1:3847/oauth2callback`; Google's desktop OAuth flow supports loopback redirects on macOS, Linux, and Windows desktop.
+   - Alternative: **Web application** client with the exact authorized redirect URI `http://127.0.0.1:3847/oauth2callback` or your custom port/path if you set `GSC_OAUTH_CALLBACK_PORT`.
+3. Download the OAuth client JSON immediately and store it securely. New Google OAuth client secrets might only be fully visible/downloadable at creation time.
+4. Set OAuth env vars in your MCP client config:
 
 ```bash
 GSC_AUTH_MODE=oauth
@@ -105,15 +125,22 @@ GSC_OAUTH_CLIENT_ID=your-client-id
 GSC_OAUTH_CLIENT_SECRET=your-client-secret
 ```
 
-Token cache defaults to:
+On first use, the server opens your browser, receives the callback on `127.0.0.1`, and stores refresh tokens locally. The default token cache is now branded to this package:
 
 ```text
-~/.config/gsc-mcp/oauth-token.json
+~/.config/infinitnet-google-search-console-gsc-mcp/oauth-token.json
 ```
 
-Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONFIG_DIR`.
+Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONFIG_DIR`. If you used an older release that wrote tokens under `~/.config/gsc-mcp/`, either move the token files into the new directory or set `GSC_CONFIG_DIR=~/.config/gsc-mcp` during migration.
+
+OAuth scopes used by this server:
+
+- `https://www.googleapis.com/auth/webmasters` for Search Console API tools. Google documents this as read/write scope; this server keeps write tools disabled by default.
+- `https://www.googleapis.com/auth/indexing` for Indexing API tools when write tools and Indexing API are enabled. Indexing uses a separate scope-aware token cache file.
 
 ## Configure your MCP client
+
+Recommended MCP client key: `infinitnet-gsc-mcp`. The server advertises the MCP server name `infinitnet-google-search-console-gsc-mcp-server`, matching the npm package; `gsc-mcp` remains a short binary alias for local command use.
 
 ### npm package config examples
 
@@ -122,7 +149,7 @@ If you installed from npm, point your MCP client at the published binary instead
 ```json
 {
   "mcpServers": {
-    "gsc": {
+    "infinitnet-gsc-mcp": {
       "command": "npx",
       "args": ["-y", "@infinitnet/google-search-console-gsc-mcp-server"],
       "env": {
@@ -139,7 +166,7 @@ If you installed globally with `npm install -g @infinitnet/google-search-console
 ```json
 {
   "mcpServers": {
-    "gsc": {
+    "infinitnet-gsc-mcp": {
       "command": "gsc-mcp",
       "env": {
         "GSC_KEY_FILE": "/absolute/path/to/service-account.json",
@@ -155,7 +182,7 @@ If you installed globally with `npm install -g @infinitnet/google-search-console
 ```json
 {
   "mcpServers": {
-    "gsc": {
+    "infinitnet-gsc-mcp": {
       "command": "node",
       "args": ["/absolute/path/to/google-search-console-gsc-mcp/dist/index.js"],
       "env": {
@@ -172,7 +199,7 @@ If you installed globally with `npm install -g @infinitnet/google-search-console
 ```json
 {
   "mcpServers": {
-    "gsc": {
+    "infinitnet-gsc-mcp": {
       "command": "node",
       "args": ["/absolute/path/to/google-search-console-gsc-mcp/dist/index.js"],
       "env": {
@@ -624,8 +651,8 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `GSC_OAUTH_CLIENT_SECRETS_FILE` | unset | Alias for OAuth client secrets JSON file. |
 | `GSC_OAUTH_CLIENT_ID` | unset | OAuth client ID, if not using a secrets file. |
 | `GSC_OAUTH_CLIENT_SECRET` | unset | OAuth client secret, if not using a secrets file. |
-| `GSC_OAUTH_TOKEN_FILE` | `~/.config/gsc-mcp/oauth-token.json` | OAuth token cache path. |
-| `GSC_CONFIG_DIR` | `~/.config/gsc-mcp` | Base config directory for OAuth token cache. |
+| `GSC_OAUTH_TOKEN_FILE` | `~/.config/infinitnet-google-search-console-gsc-mcp/oauth-token.json` | OAuth token cache path. |
+| `GSC_CONFIG_DIR` | `~/.config/infinitnet-google-search-console-gsc-mcp` | Base config directory for OAuth token cache. |
 | `GSC_OAUTH_PORT` | `3847` | Local OAuth callback port. |
 | `GSC_OAUTH_CALLBACK_PORT` | `3847` | Alias/override for OAuth callback port. |
 | `GSC_SITE_URL` | unset | Optional fallback property if a tool call omits `site_url`. |
