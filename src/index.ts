@@ -7,11 +7,12 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { authStatusSummary } from "./auth.js";
 import { getConfig } from "./config.js";
+import { isCliEntrypoint } from "./entrypoint.js";
 import { fail, ok } from "./response.js";
 import { propertiesList, propertyDetails, searchAnalyticsCustom, periodCompare, pageQueryBreakdown, urlInspect, urlInspectBatch, sitemapList, sitemapDetails, sitemapSubmit, indexNotify, indexNotifyBatch } from "./gsc.js";
 import { actionPlan, alertScan, claimCheck, ctrGapCandidates, decayingPages, multiPropertyOverview, queryPageOverlap, rankLiftCandidates, sectionPerformance, siteHealthOverview, trafficLossDiagnostics, uncoveredDemand } from "./seo.js";
 
-const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.1.0" });
+const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.1.1" });
 
 const siteUrl = z.string().optional().describe("Exact GSC property chosen from gsc_properties_list, e.g. sc-domain:example.com or https://www.example.com/. If omitted, the server uses optional GSC_SITE_URL fallback.");
 const days = z.number().int().min(1).max(548).default(28).describe("Number of recent days to analyze, ending yesterday.");
@@ -124,7 +125,7 @@ async function main() {
   await server.connect(transport);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isCliEntrypoint(import.meta.url)) {
   main().catch((error) => {
     console.error("GSC MCP server failed:", error);
     process.exit(1);
