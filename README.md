@@ -82,8 +82,6 @@ Before configuring either mode:
 3. Enable **Indexing API** (`indexing.googleapis.com`) only if you plan to use `gsc_index_notify` or `gsc_index_notify_batch`; write tools can be disabled globally with `GSC_ENABLE_WRITE_TOOLS=false`.
 4. Make sure the Google identity you will use can access the relevant Search Console property. Search Console property strings must match exactly, for example `sc-domain:example.com` or `https://www.example.com/`.
 
-Official setup references: [Search Console API authorization](https://developers.google.com/webmaster-tools/v1/how-tos/authorizing), [Google API Console API management](https://support.google.com/googleapi/answer/7037264), [Search Console users and permissions](https://support.google.com/webmasters/answer/7687615), [service account keys](https://cloud.google.com/iam/docs/keys-create-delete), [OAuth clients](https://support.google.com/cloud/answer/15549257), and [Indexing API prerequisites](https://developers.google.com/search/apis/indexing-api/v3/prereqs).
-
 ### Service-account mode
 
 Use this when the MCP server should authenticate as a Google Cloud service account. This is a good fit for server/agency workflows where you can explicitly grant the service-account email access to the Search Console properties it should read.
