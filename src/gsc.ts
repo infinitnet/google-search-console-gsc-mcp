@@ -51,13 +51,13 @@ export async function periodCompare(input: { siteUrl?: string; days?: number; di
     fetchSearchRows({ siteUrl, ...current, dimensions, filters: input.filters, rowLimit: input.rowLimit ?? 250 }, true),
     fetchSearchRows({ siteUrl, ...prior, dimensions, filters: input.filters, rowLimit: input.rowLimit ?? 250 }, true)
   ]);
-  const priorMap = new Map(priorRows.map((row) => [row.keys.join("|||"), row]));
-  const currentMap = new Map(currentRows.map((row) => [row.keys.join("|||"), row]));
+  const priorMap = new Map(priorRows.map((row) => [dimensionKey(row.keys), row]));
+  const currentMap = new Map(currentRows.map((row) => [dimensionKey(row.keys), row]));
   const keys = new Set([...currentMap.keys(), ...priorMap.keys()]);
   const comparisons = [...keys].map((key) => {
     const c = currentMap.get(key);
     const p = priorMap.get(key);
-    return { keys: key.split("|||"), current: c ? metrics(c) : emptyMetrics(), prior: p ? metrics(p) : emptyMetrics(), change: compareMetrics(c, p) };
+    return { keys: (c ?? p)?.keys ?? [], current: c ? metrics(c) : emptyMetrics(), prior: p ? metrics(p) : emptyMetrics(), change: compareMetrics(c, p) };
   }).sort((a, b) => a.change.clicks - b.change.clicks);
   return { siteUrl, current, prior, dimensions, summary: { current: summarizeRows(currentRows), prior: summarizeRows(priorRows) }, rows: comparisons };
 }
@@ -138,6 +138,9 @@ export async function sitemapDetails(input: { siteUrl?: string; sitemapUrl: stri
 }
 
 export async function sitemapSubmit(input: { siteUrl?: string; sitemapUrl: string }) {
+  if (!getConfig().allowSitemapSubmit) {
+    throw new Error("Sitemap submit is disabled. Set GSC_ENABLE_WRITE_TOOLS=true and keep GSC_ENABLE_SITEMAP_SUBMIT=true to enable this write operation.");
+  }
   const siteUrl = resolveSiteUrl(input.siteUrl);
   const client = await getSearchConsoleClient();
   await client.sitemaps.submit({ siteUrl, feedpath: input.sitemapUrl });
@@ -146,7 +149,7 @@ export async function sitemapSubmit(input: { siteUrl?: string; sitemapUrl: strin
 
 export async function indexNotify(input: { url: string; action?: "URL_UPDATED" | "URL_DELETED" }) {
   if (!getConfig().allowIndexingApi) {
-    throw new Error("Indexing API notifications are disabled by GSC_ENABLE_INDEXING_API=false.");
+    throw new Error("Indexing API notifications are disabled. Set GSC_ENABLE_WRITE_TOOLS=true and keep GSC_ENABLE_INDEXING_API=true to enable this write operation.");
   }
   const client = await getIndexingClient();
   const response = await client.urlNotifications.publish({ requestBody: { url: input.url, type: input.action ?? "URL_UPDATED" } });
@@ -161,6 +164,10 @@ export async function indexNotifyBatch(input: { urls: string[]; action?: "URL_UP
     catch (error) { results.push({ ok: false, url, error: error instanceof Error ? error.message : String(error) }); }
   }
   return { total: input.urls.length, succeeded: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results };
+}
+
+function dimensionKey(keys: string[]): string {
+  return JSON.stringify(keys);
 }
 
 function inspectionIssues(index: searchconsole_v1.Schema$IndexStatusInspectionResult | undefined, rich: searchconsole_v1.Schema$RichResultsInspectionResult | undefined): string[] {

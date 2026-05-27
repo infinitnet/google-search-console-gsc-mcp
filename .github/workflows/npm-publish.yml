@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 permissions:
   contents: read
 
@@ -90,7 +93,7 @@ jobs:
 
       - name: Upload package tarball
         if: steps.package.outputs.publish == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-package-tarball
           path: ${{ steps.pack.outputs.tarball }}
@@ -109,7 +112,7 @@ jobs:
       id-token: write
     steps:
       - name: Download package tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-package-tarball
 

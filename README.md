@@ -360,7 +360,7 @@ Tool: `gsc_sitemap_submit`
 }
 ```
 
-Sitemap operations are Search Console write operations. `gsc_sitemap_submit` is intended to be safe/idempotent, but it still notifies Google about the sitemap.
+Sitemap operations are Search Console write operations. `gsc_sitemap_submit` is intended to be safe/idempotent, but it still notifies Google about the sitemap. It is disabled by default; set `GSC_ENABLE_WRITE_TOOLS=true` to allow write tools, and keep `GSC_ENABLE_SITEMAP_SUBMIT=true` to allow this specific tool.
 
 ### 10. Get site health
 
@@ -579,7 +579,7 @@ Tool: `gsc_index_notify_batch`
 }
 ```
 
-Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in-VideoObject pages. A successful notification does not guarantee crawling, indexing, or ranking changes.
+Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in-VideoObject pages. A successful notification does not guarantee crawling, indexing, or ranking changes. Indexing API tools are disabled by default; set `GSC_ENABLE_WRITE_TOOLS=true` to allow write tools, and keep `GSC_ENABLE_INDEXING_API=true` to allow this specific tool.
 
 ## Tool reference
 
@@ -596,7 +596,7 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `gsc_indexing_issue_scan` | Return only inspected URLs with issues | `site_url`, `urls` |
 | `gsc_sitemaps_list` | List sitemaps | `site_url` |
 | `gsc_sitemap_get` | Get one sitemap | `site_url`, `sitemap_url` |
-| `gsc_sitemap_submit` | Submit/resubmit sitemap | `site_url`, `sitemap_url` |
+| `gsc_sitemap_submit` | Submit/resubmit sitemap (write tool; disabled unless write tools are enabled) | `site_url`, `sitemap_url` |
 | `gsc_site_health` | Site-level current/prior health | `site_url`, `days` |
 | `gsc_rank_lift_opportunities` | Near-page-one opportunities | `site_url`, `days`, `min_impressions`, `max_position` |
 | `gsc_ctr_gap_pages` | CTR underperformance opportunities | `site_url`, `days`, `min_impressions` |
@@ -604,13 +604,13 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `gsc_traffic_loss` | Diagnose page click losses | `site_url`, `days`, `min_prior_clicks` |
 | `gsc_content_decay` | Three-period page decline detection | `site_url`, `min_oldest_clicks` |
 | `gsc_query_overlap` | Two-page query/impression overlap with relative cannibalization severity | `site_url`, `days`, `min_impressions`, `min_pages`, overlap filters |
-| `gsc_section_performance` | Analyze URLs containing a path fragment | `site_url`, `path_contains`, `days` |
+| `gsc_section_performance` | Analyze top returned URLs containing a path fragment | `site_url`, `path_contains`, `days` |
 | `gsc_alert_scan` | Recent click/CTR/position alerts | `site_url`, `days`, thresholds |
 | `gsc_action_plan` | Prioritized SEO recommendations | `site_url`, `days`, `limit` |
 | `gsc_claim_check` | Verify a numeric claim | `site_url`, `claim`, `metric`, `expected`, optional filters |
-| `gsc_multi_property_health` | Compare multiple properties | `site_urls`, `days` |
-| `gsc_index_notify` | Notify one URL update/delete | `url`, `action` |
-| `gsc_index_notify_batch` | Notify up to 200 URLs | `urls`, `action` |
+| `gsc_multi_property_health` | Compare up to 20 properties | `site_urls`, `days` |
+| `gsc_index_notify` | Notify one URL update/delete (write tool; disabled unless write tools are enabled) | `url`, `action` |
+| `gsc_index_notify_batch` | Notify up to 200 URLs (write tool; disabled unless write tools are enabled) | `urls`, `action` |
 
 ## Environment variables
 
@@ -631,7 +631,9 @@ Google documents the Indexing API primarily for JobPosting and BroadcastEvent-in
 | `GSC_SITE_URL` | unset | Optional fallback property if a tool call omits `site_url`. |
 | `GSC_SITE_URLS` | unset | Optional comma-separated fallback list for multi-property tools. |
 | `GSC_DATA_STATE` | `all` | Search Analytics data state: `all` or `final`. |
-| `GSC_ENABLE_INDEXING_API` | `true` | Set to `false` to disable Indexing API notification tools. |
+| `GSC_ENABLE_WRITE_TOOLS` | `false` | Enables external write operations when set to `true`. Read-only tools work without this. |
+| `GSC_ENABLE_SITEMAP_SUBMIT` | `true` when write tools are enabled | Set to `false` to keep sitemap submission disabled even when write tools are enabled. |
+| `GSC_ENABLE_INDEXING_API` | `true` when write tools are enabled | Set to `false` to keep Indexing API notification tools disabled even when write tools are enabled. |
 
 ## Response format
 

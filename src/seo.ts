@@ -3,6 +3,9 @@ import { dateRangeForDays, fetchSearchRows, previousRange, pctChange, round, sum
 import { getConfig, resolveSiteUrl } from "./config.js";
 
 const CTR_CURVE = [0.285, 0.157, 0.11, 0.08, 0.072, 0.051, 0.04, 0.032, 0.028, 0.025];
+const MAX_MULTI_PROPERTY_SITES = 20;
+const MULTI_PROPERTY_CONCURRENCY = 4;
+const MAX_OVERLAP_PAGES_PER_QUERY = 50;
 
 export function expectedCtr(position: number): number {
   if (position <= 1) return CTR_CURVE[0]!;
@@ -247,7 +250,10 @@ function pagePairOverlaps(rows: SearchRow[], minBalancedOverlapImpressions: numb
 
   const pairQueries = new Map<string, { pages: [string, string]; rows: Array<{ query: string; pageA: SearchRow; pageB: SearchRow }> }>();
   for (const [query, queryRows] of rowsByQueryPage) {
-    const entries = [...queryRows.entries()].sort(([pageA], [pageB]) => pageA.localeCompare(pageB));
+    const entries = [...queryRows.entries()]
+      .sort(([, rowA], [, rowB]) => rowB.impressions - rowA.impressions)
+      .slice(0, MAX_OVERLAP_PAGES_PER_QUERY)
+      .sort(([pageA], [pageB]) => pageA.localeCompare(pageB));
     for (let i = 0; i < entries.length; i += 1) {
       for (let j = i + 1; j < entries.length; j += 1) {
         const [pageA, rowA] = entries[i]!;
@@ -398,7 +404,10 @@ export async function multiPropertyOverview(input: { siteUrls?: string[]; days?:
   const urls = input.siteUrls?.length ? input.siteUrls : undefined;
   const siteUrls = urls ?? getConfig().siteUrls;
   if (!siteUrls.length) throw new Error("Provide site_urls or set GSC_SITE_URLS for multi-property overview.");
-  const sites = await Promise.all(siteUrls.map((siteUrl) => siteHealthOverview({ siteUrl, days: input.days }).then((overview) => ({ ...overview, status: overview.change.clicksPercent == null || overview.change.clicksPercent >= 0 ? "stable_or_growing" : overview.change.clicksPercent <= -25 ? "declining" : "watch" }))));
+  if (siteUrls.length > MAX_MULTI_PROPERTY_SITES) throw new Error(`gsc_multi_property_health supports up to ${MAX_MULTI_PROPERTY_SITES} properties per call.`);
+  const sites = await mapWithConcurrency(siteUrls, MULTI_PROPERTY_CONCURRENCY, (siteUrl) =>
+    siteHealthOverview({ siteUrl, days: input.days }).then((overview) => ({ ...overview, status: overview.change.clicksPercent == null || overview.change.clicksPercent >= 0 ? "stable_or_growing" : overview.change.clicksPercent <= -25 ? "declining" : "watch" }))
+  );
   return { count: sites.length, sites };
 }
 
@@ -419,4 +428,18 @@ function inferIntent(query: string): string {
 
 function countSeverities(alerts: Array<{ severity: "critical" | "warning" | "info" }>) {
   return alerts.reduce((acc, alert) => ({ ...acc, [alert.severity]: acc[alert.severity] + 1, total: acc.total + 1 }), { critical: 0, warning: 0, info: 0, total: 0 });
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }

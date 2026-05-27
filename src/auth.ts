@@ -15,7 +15,9 @@ const OAUTH_CALLBACK_PORT = parsePort(process.env.GSC_OAUTH_CALLBACK_PORT ?? pro
 
 let searchConsoleClient: searchconsole_v1.Searchconsole | undefined;
 let indexingClient: indexing_v3.Indexing | undefined;
-let authPromise: Promise<OAuth2Client> | undefined;
+const authPromises = new Map<string, Promise<OAuth2Client>>();
+
+type OAuthCredentials = Parameters<OAuth2Client["setCredentials"]>[0] & { scope?: string };
 
 function parsePort(value: string | undefined, fallback: number): number {
   const port = Number(value ?? fallback);
@@ -24,6 +26,26 @@ function parsePort(value: string | undefined, fallback: number): number {
 
 function ensureDir(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function scopeNames(scopes: string[]): string[] {
+  return scopes.map((scope) => {
+    if (scope === WEBMASTERS_SCOPE) return "webmasters";
+    if (scope === INDEXING_SCOPE) return "indexing";
+    return scope.replace(/^https:\/\/www\.googleapis\.com\/auth\//, "").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  }).sort();
+}
+
+function scopedTokenFile(baseFile: string, scopes: string[]): string {
+  if (scopes.length === 1 && scopes[0] === WEBMASTERS_SCOPE) return baseFile;
+  const extension = path.extname(baseFile) || ".json";
+  const basename = path.basename(baseFile, extension);
+  return path.join(path.dirname(baseFile), `${basename}.${scopeNames(scopes).join("-")}${extension}`);
+}
+
+function tokenHasScopes(credentials: OAuthCredentials, requestedScopes: string[]): boolean {
+  const granted = new Set((credentials.scope ?? "").split(/\s+/).filter(Boolean));
+  return requestedScopes.every((scope) => granted.has(scope));
 }
 
 function readOAuthSecrets(file?: string): { clientId: string; clientSecret: string } | undefined {
@@ -49,12 +71,17 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
 
   const redirectUri = `http://127.0.0.1:${OAUTH_CALLBACK_PORT}/oauth2callback`;
   const oauth2 = new OAuth2Client(clientId, clientSecret, redirectUri);
-  if (fs.existsSync(config.oauthTokenFile)) {
-    oauth2.setCredentials(JSON.parse(fs.readFileSync(config.oauthTokenFile, "utf8")));
-    return oauth2;
+  const tokenFile = scopedTokenFile(config.oauthTokenFile, scopes);
+  if (fs.existsSync(tokenFile)) {
+    const credentials = JSON.parse(fs.readFileSync(tokenFile, "utf8")) as OAuthCredentials;
+    if (tokenHasScopes(credentials, scopes)) {
+      oauth2.setCredentials(credentials);
+      return oauth2;
+    }
   }
 
-  if (!authPromise) {
+  const authKey = `${tokenFile}:${scopes.slice().sort().join(" ")}`;
+  if (!authPromises.has(authKey)) {
     const state = crypto.randomUUID();
     const codePromise = new Promise<string>((resolve, reject) => {
       const server = http.createServer((req, res) => {
@@ -84,20 +111,20 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
       });
       server.on("error", reject);
     });
-    authPromise = codePromise
+    authPromises.set(authKey, codePromise
       .then(async (code) => {
         const { tokens } = await oauth2.getToken(code);
         oauth2.setCredentials(tokens);
-        ensureDir(config.oauthTokenFile);
-        fs.writeFileSync(config.oauthTokenFile, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+        ensureDir(tokenFile);
+        fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2), { mode: 0o600 });
         return oauth2;
       })
       .finally(() => {
-        authPromise = undefined;
-      });
+        authPromises.delete(authKey);
+      }));
   }
 
-  return authPromise;
+  return authPromises.get(authKey)!;
 }
 
 async function getGoogleAuth(scopes: string[]): Promise<GoogleAuth | OAuth2Client> {
@@ -132,7 +159,7 @@ export function setClientsForTests(clients: { searchConsole?: searchconsole_v1.S
 export function resetClientsForTests(): void {
   searchConsoleClient = undefined;
   indexingClient = undefined;
-  authPromise = undefined;
+  authPromises.clear();
 }
 
 export function authStatusSummary(): { mode: string; configured: boolean; details: string[] } {
@@ -142,9 +169,13 @@ export function authStatusSummary(): { mode: string; configured: boolean; detail
   if (config.authMode === "oauth") {
     configured = Boolean(config.oauthSecretsFile || (config.oauthClientId && config.oauthClientSecret));
     details.push(`token cache: ${config.oauthTokenFile}`);
+    details.push(`indexing token cache: ${scopedTokenFile(config.oauthTokenFile, [INDEXING_SCOPE])}`);
   } else {
     configured = Boolean(config.keyFile);
     details.push(config.keyFile ? `key file: ${config.keyFile}` : "no service-account key configured");
   }
+  details.push(`write tools: ${config.writeToolsEnabled ? "enabled" : "disabled"}`);
+  details.push(`sitemap submit: ${config.allowSitemapSubmit ? "enabled" : "disabled"}`);
+  details.push(`indexing api: ${config.allowIndexingApi ? "enabled" : "disabled"}`);
   return { mode: config.authMode, configured, details };
 }

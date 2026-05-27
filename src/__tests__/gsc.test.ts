@@ -10,6 +10,20 @@ function chain<T>(value: T) {
 
 test.afterEach(() => resetClientsForTests());
 
+function withEnv<T>(updates: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
+  const previous = Object.fromEntries(Object.keys(updates).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return run().finally(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
+
 test("fetchSearchRows sends expected Search Console query body", async () => {
   const calls: any[] = [];
   const mock = {
@@ -55,18 +69,33 @@ test("periodCompare reports CTR as percentage points consistently", async () => 
   assert.equal(result.rows[0]!.change.ctr, 10);
 });
 
-test("indexNotify respects the indexing API opt-out configuration", async () => {
-  const previous = process.env.GSC_ENABLE_INDEXING_API;
-  process.env.GSC_ENABLE_INDEXING_API = "false";
-  try {
+test("periodCompare preserves composite keys containing delimiter-like text", async () => {
+  let call = 0;
+  const key = ["query ||| value", "https://example.com/a|||b"];
+  const mock = {
+    searchanalytics: {
+      query: async () => {
+        call += 1;
+        return call === 1
+          ? { data: { rows: [{ keys: key, clicks: 20, impressions: 100, ctr: 0.2, position: 2 }] } }
+          : { data: { rows: [{ keys: key, clicks: 10, impressions: 100, ctr: 0.1, position: 3 }] } };
+      }
+    }
+  } as any;
+  setClientsForTests({ searchConsole: mock });
+
+  const result = await periodCompare({ siteUrl: "sc-domain:example.com", days: 7, dimensions: ["query", "page"], rowLimit: 10 });
+
+  assert.deepEqual(result.rows[0]!.keys, key);
+});
+
+test("indexNotify is disabled by default unless write tools are enabled", async () => {
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: undefined, GSC_ENABLE_INDEXING_API: undefined }, async () => {
     await assert.rejects(
       () => indexNotify({ url: "https://example.com/job/a" }),
       /disabled/
     );
-  } finally {
-    if (previous === undefined) delete process.env.GSC_ENABLE_INDEXING_API;
-    else process.env.GSC_ENABLE_INDEXING_API = previous;
-  }
+  });
 });
 
 test("urlInspect calls URL Inspection API", async () => {
@@ -78,11 +107,22 @@ test("urlInspect calls URL Inspection API", async () => {
   assert.deepEqual(calls[0].requestBody, { siteUrl: "sc-domain:example.com", inspectionUrl: "https://example.com/a" });
 });
 
-test("sitemapSubmit calls sitemaps.submit", async () => {
+test("sitemapSubmit is disabled by default unless write tools are enabled", async () => {
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: undefined, GSC_ENABLE_SITEMAP_SUBMIT: undefined }, async () => {
+    await assert.rejects(
+      () => sitemapSubmit({ siteUrl: "https://example.com/", sitemapUrl: "https://example.com/sitemap.xml" }),
+      /disabled/
+    );
+  });
+});
+
+test("sitemapSubmit calls sitemaps.submit when write tools are enabled", async () => {
   const calls: any[] = [];
   const mock = { sitemaps: { submit: async (arg: any) => { calls.push(arg); return { data: {} }; } } } as any;
   setClientsForTests({ searchConsole: mock });
-  const result = await sitemapSubmit({ siteUrl: "https://example.com/", sitemapUrl: "https://example.com/sitemap.xml" });
-  assert.equal(result.submitted, true);
-  assert.deepEqual(calls[0], { siteUrl: "https://example.com/", feedpath: "https://example.com/sitemap.xml" });
+  await withEnv({ GSC_ENABLE_WRITE_TOOLS: "true", GSC_ENABLE_SITEMAP_SUBMIT: "true" }, async () => {
+    const result = await sitemapSubmit({ siteUrl: "https://example.com/", sitemapUrl: "https://example.com/sitemap.xml" });
+    assert.equal(result.submitted, true);
+    assert.deepEqual(calls[0], { siteUrl: "https://example.com/", feedpath: "https://example.com/sitemap.xml" });
+  });
 });

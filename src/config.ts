@@ -13,6 +13,8 @@ export interface ServerConfig {
   siteUrl?: string;
   siteUrls: string[];
   dataState: "all" | "final";
+  writeToolsEnabled: boolean;
+  allowSitemapSubmit: boolean;
   allowIndexingApi: boolean;
 }
 
@@ -45,6 +47,7 @@ export function getConfig(): ServerConfig {
   const dataStateRaw = process.env.GSC_DATA_STATE?.toLowerCase() ?? "all";
   const dataState = dataStateRaw === "final" ? "final" : "all";
   const configDir = expandPath(process.env.GSC_CONFIG_DIR) ?? path.join(os.homedir(), ".config", "gsc-mcp");
+  const writeToolsEnabled = boolEnv("GSC_ENABLE_WRITE_TOOLS", false);
   return {
     authMode,
     keyFile: expandPath(process.env.GSC_KEY_FILE ?? process.env.GSC_CREDENTIALS_PATH ?? process.env.GOOGLE_APPLICATION_CREDENTIALS),
@@ -55,7 +58,9 @@ export function getConfig(): ServerConfig {
     siteUrl,
     siteUrls: siteUrls.length ? siteUrls : siteUrl ? [siteUrl] : [],
     dataState,
-    allowIndexingApi: boolEnv("GSC_ENABLE_INDEXING_API", true)
+    writeToolsEnabled,
+    allowSitemapSubmit: writeToolsEnabled && boolEnv("GSC_ENABLE_SITEMAP_SUBMIT", true),
+    allowIndexingApi: writeToolsEnabled && boolEnv("GSC_ENABLE_INDEXING_API", true)
   };
 }
 
