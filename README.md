@@ -6,6 +6,7 @@ Infinitnet Google Search Console (GSC) MCP Server is a local stdio MCP server th
 
 - [What this server does](#what-this-server-does)
 - [Requirements](#requirements)
+- [Install from npm](#install-from-npm)
 - [Install from source](#install-from-source)
 - [Authentication](#authentication)
 - [Configure your MCP client](#configure-your-mcp-client)
@@ -37,6 +38,21 @@ Every tool returns a structured JSON response envelope so the assistant can dist
   - Indexing API only if you use `gsc_index_notify` or `gsc_index_notify_batch`.
 - Access to at least one Google Search Console property.
 - Either service-account credentials or OAuth client credentials.
+
+## Install from npm
+
+After the package is published, you can run it without cloning the repository:
+
+```bash
+npx -y @infinitnet/google-search-console-gsc-mcp-server
+```
+
+Or install it globally and run the short binary name:
+
+```bash
+npm install -g @infinitnet/google-search-console-gsc-mcp-server
+gsc-mcp
+```
 
 ## Install from source
 
@@ -98,6 +114,41 @@ Token cache defaults to:
 Override it with `GSC_OAUTH_TOKEN_FILE` or set the base directory with `GSC_CONFIG_DIR`.
 
 ## Configure your MCP client
+
+### npm package config examples
+
+If you installed from npm, point your MCP client at the published binary instead of a local `dist/index.js` path. For one-off `npx` execution:
+
+```json
+{
+  "mcpServers": {
+    "gsc": {
+      "command": "npx",
+      "args": ["-y", "@infinitnet/google-search-console-gsc-mcp-server"],
+      "env": {
+        "GSC_KEY_FILE": "/absolute/path/to/service-account.json",
+        "GSC_DATA_STATE": "all"
+      }
+    }
+  }
+}
+```
+
+If you installed globally with `npm install -g @infinitnet/google-search-console-gsc-mcp-server`, use the short binary:
+
+```json
+{
+  "mcpServers": {
+    "gsc": {
+      "command": "gsc-mcp",
+      "env": {
+        "GSC_KEY_FILE": "/absolute/path/to/service-account.json",
+        "GSC_DATA_STATE": "all"
+      }
+    }
+  }
+}
+```
 
 ### Claude Desktop / Claude Code style config: service account
 

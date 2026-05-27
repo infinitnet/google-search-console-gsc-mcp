@@ -22,6 +22,14 @@
     "gsc"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/infinitnet/google-search-console-gsc-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/infinitnet/google-search-console-gsc-mcp/issues"
+  },
+  "homepage": "https://github.com/infinitnet/google-search-console-gsc-mcp#readme",
   "engines": {
     "node": ">=20"
   },
@@ -42,5 +50,9 @@
     "!dist/__tests__",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

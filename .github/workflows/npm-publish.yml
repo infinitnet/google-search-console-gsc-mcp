@@ -1,33 +1,123 @@
-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
-# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
-
-name: Node.js Package
+name: Publish package to npm
 
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  validate:
+    name: Validate package
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.package.outputs.publish }}
+      package_name: ${{ steps.package.outputs.name }}
+      package_version: ${{ steps.package.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm test
+      - name: Check out repository
+        uses: actions/checkout@v6
 
-  publish-npm:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org/
-      - run: npm ci
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build package
+        run: npm run build
+
+      - name: Check package version
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          server_version="$(node -e "const fs=require('fs'); const source=fs.readFileSync('src/index.ts','utf8'); const match=source.match(/new McpServer\(\{[^}]*version: \"([^\"]+)\"/s); if (!match) process.exit(2); process.stdout.write(match[1]);")"
+          if [[ "${server_version}" != "${version}" ]]; then
+            echo "package.json version (${version}) does not match MCP server version (${server_version})." >&2
+            exit 1
+          fi
+
+          echo "name=${name}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+          set +e
+          view_output="$(npm view "${name}@${version}" version --registry=https://registry.npmjs.org 2>&1)"
+          view_status=$?
+          set -e
+
+          if [[ ${view_status} -eq 0 ]]; then
+            echo "publish=false" >> "${GITHUB_OUTPUT}"
+            echo "${name}@${version} is already published; skipping npm publish."
+          elif grep -q "E404" <<< "${view_output}"; then
+            echo "publish=true" >> "${GITHUB_OUTPUT}"
+            echo "${name}@${version} is not published yet; npm publish will run."
+          else
+            echo "npm view failed for a reason other than E404; refusing to infer unpublished state." >&2
+            echo "${view_output}" >&2
+            exit "${view_status}"
+          fi
+
+      - name: Verify package contents
+        if: steps.package.outputs.publish == 'true'
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          tarball="$(npm pack --json | node -e "let data=''; process.stdin.on('data', c => data += c); process.stdin.on('end', () => process.stdout.write(JSON.parse(data)[0].filename));")"
+          echo "tarball=${tarball}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload package tarball
+        if: steps.package.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: validate
+    if: needs.validate.outputs.publish == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download package tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package-tarball
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Publish package
+        run: npm publish "${{ needs.validate.outputs.tarball }}" --access public
