@@ -1,5 +1,10 @@
 # Infinitnet Google Search Console (GSC) MCP Server
 
+<p align="center">
+  <a href="https://buymeacoffee.com/infinitnet"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
+  <a href="https://ko-fi.com/infinitnet"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Support me on Ko-fi" height="40"></a>
+</p>
+
 Infinitnet Google Search Console (GSC) MCP Server is a local stdio MCP server that lets AI assistants work with Google Search Console data safely and consistently. It provides property discovery, Search Analytics queries, URL Inspection, sitemap operations, Indexing API notifications, and higher-level SEO analysis workflows such as traffic-loss diagnosis, CTR gaps, content decay, query overlap, and prioritized action plans.
 
 ## Contents
