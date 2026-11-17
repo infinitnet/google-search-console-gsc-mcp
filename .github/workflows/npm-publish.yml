@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths: [package.json]
 
 concurrency:
   group: publish-npm
@@ -43,7 +44,12 @@ jobs:
           if out="$(npm view "${name}@${version}" version 2>&1)"; then
             echo "${name}@${version} already published; skipping."
           elif grep -q E404 <<< "${out}"; then
-            npm publish --access public
+            # A concurrent run may have published this version already; treat that as success.
+            if ! npm publish --access public; then
+              sleep 15
+              npm view "${name}@${version}" version || exit 1
+              echo "${name}@${version} was published concurrently."
+            fi
           else
             echo "${out}" >&2
             exit 1
