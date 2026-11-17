@@ -37,7 +37,7 @@ Every tool returns a structured JSON response envelope so the assistant can dist
 
 ## Requirements
 
-- Node.js **20 or newer**.
+- Node.js **22 or newer**.
 - A Google Cloud project with the relevant APIs enabled:
   - Google Search Console API for Search Analytics, properties, sitemaps, and URL Inspection.
   - Indexing API only if you use `gsc_index_notify` or `gsc_index_notify_batch`.

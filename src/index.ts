@@ -12,13 +12,15 @@ import { fail, ok } from "./response.js";
 import { propertiesList, propertyDetails, searchAnalyticsCustom, periodCompare, pageQueryBreakdown, urlInspect, urlInspectBatch, sitemapList, sitemapDetails, sitemapSubmit, indexNotify, indexNotifyBatch } from "./gsc.js";
 import { actionPlan, alertScan, claimCheck, ctrGapCandidates, decayingPages, multiPropertyOverview, queryPageOverlap, rankLiftCandidates, sectionPerformance, siteHealthOverview, trafficLossDiagnostics, uncoveredDemand } from "./seo.js";
 
-const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.1.1" });
+const server = new McpServer({ name: "infinitnet-google-search-console-gsc-mcp-server", version: "1.1.2" });
 
 const siteUrl = z.string().optional().describe("Exact GSC property chosen from gsc_properties_list, e.g. sc-domain:example.com or https://www.example.com/. If omitted, the server uses optional GSC_SITE_URL fallback.");
+const dimensionSchema = z.enum(["query", "page", "country", "device", "date", "searchAppearance"]);
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.");
 const days = z.number().int().min(1).max(548).default(28).describe("Number of recent days to analyze, ending yesterday.");
 const limit = z.number().int().min(1).max(200).default(50).describe("Maximum rows/items to return.");
 const filterSchema = z.object({
-  dimension: z.enum(["query", "page", "country", "device", "date", "searchAppearance"]),
+  dimension: dimensionSchema,
   operator: z.enum(["contains", "notContains", "equals", "notEquals", "includingRegex", "excludingRegex"]),
   expression: z.string()
 });
@@ -75,9 +77,9 @@ register("gsc_property_get", "Fetch permission and raw property details for one 
 register("gsc_search_query", "Run a flexible Search Console performance query with dimensions, filters, sorting, and row limits.", {
   site_url: siteUrl,
   days,
-  start_date: z.string().optional(),
-  end_date: z.string().optional(),
-  dimensions: z.array(z.string()).default(["query"]),
+  start_date: isoDateSchema.optional().describe("Inclusive start date. Used only together with end_date; otherwise days applies."),
+  end_date: isoDateSchema.optional().describe("Inclusive end date. Used only together with start_date; otherwise days applies."),
+  dimensions: z.array(dimensionSchema).default(["query"]),
   filters: z.array(filterSchema).default([]),
   row_limit: z.number().int().min(1).max(25000).default(100),
   start_row: z.number().int().min(0).default(0),
@@ -85,7 +87,7 @@ register("gsc_search_query", "Run a flexible Search Console performance query wi
   sort_direction: z.enum(["asc", "desc"]).default("desc")
 }, (i) => searchAnalyticsCustom({ siteUrl: i.site_url, days: i.days, startDate: i.start_date, endDate: i.end_date, dimensions: i.dimensions, filters: i.filters, rowLimit: i.row_limit, startRow: i.start_row, sortBy: i.sort_by, sortDirection: i.sort_direction }));
 
-register("gsc_period_compare", "Compare Search Console metrics for a current period against the immediately preceding period, grouped by dimensions.", { site_url: siteUrl, days, dimensions: z.array(z.string()).default(["page"]), filters: z.array(filterSchema).default([]), row_limit: z.number().int().min(1).max(25000).default(250) }, (i) => periodCompare({ siteUrl: i.site_url, days: i.days, dimensions: i.dimensions, filters: i.filters, rowLimit: i.row_limit }));
+register("gsc_period_compare", "Compare Search Console metrics for a current period against the immediately preceding period, grouped by dimensions.", { site_url: siteUrl, days, dimensions: z.array(dimensionSchema).default(["page"]), filters: z.array(filterSchema).default([]), row_limit: z.number().int().min(1).max(25000).default(250) }, (i) => periodCompare({ siteUrl: i.site_url, days: i.days, dimensions: i.dimensions, filters: i.filters, rowLimit: i.row_limit }));
 register("gsc_page_queries", "Show which search queries drive impressions and clicks for a specific page URL.", { site_url: siteUrl, page_url: z.string().url(), days, row_limit: z.number().int().min(1).max(1000).default(100) }, (i) => pageQueryBreakdown({ siteUrl: i.site_url, pageUrl: i.page_url, days: i.days, rowLimit: i.row_limit }));
 
 register("gsc_url_inspect", "Inspect one URL with Google's URL Inspection API and normalize indexing, crawl, canonical, robots, and rich result signals.", { site_url: siteUrl, url: z.string().url() }, (i) => urlInspect({ siteUrl: i.site_url, url: i.url }));

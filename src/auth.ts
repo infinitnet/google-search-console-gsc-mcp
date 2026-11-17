@@ -11,6 +11,7 @@ import { getConfig } from "./config.js";
 
 const WEBMASTERS_SCOPE = "https://www.googleapis.com/auth/webmasters";
 const INDEXING_SCOPE = "https://www.googleapis.com/auth/indexing";
+const OAUTH_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_CALLBACK_PORT = parsePort(process.env.GSC_OAUTH_CALLBACK_PORT ?? process.env.GSC_OAUTH_PORT, 3847);
 
 let searchConsoleClient: searchconsole_v1.Searchconsole | undefined;
@@ -84,6 +85,11 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
   if (!authPromises.has(authKey)) {
     const state = crypto.randomUUID();
     const codePromise = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        server.close();
+        reject(new Error("OAuth authentication timed out after 5 minutes."));
+      }, OAUTH_TIMEOUT_MS);
+      timer.unref();
       const server = http.createServer((req, res) => {
         try {
           const requestUrl = new URL(req.url ?? "/", redirectUri);
@@ -96,11 +102,13 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
           const code = requestUrl.searchParams.get("code");
           if (!code) throw new Error("OAuth callback did not include an authorization code.");
           res.end("Google Search Console MCP authentication complete. You can close this tab.");
+          clearTimeout(timer);
           server.close();
           resolve(code);
         } catch (error) {
           res.statusCode = 500;
           res.end("Authentication failed.");
+          clearTimeout(timer);
           server.close();
           reject(error);
         }
@@ -109,7 +117,10 @@ async function getOAuthClient(scopes: string[]): Promise<OAuth2Client> {
         const authUrl = oauth2.generateAuthUrl({ access_type: "offline", prompt: "consent", scope: scopes, state });
         void open(authUrl).catch(() => console.error(`Open this URL to authenticate Google Search Console MCP: ${authUrl}`));
       });
-      server.on("error", reject);
+      server.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
     });
     authPromises.set(authKey, codePromise
       .then(async (code) => {
