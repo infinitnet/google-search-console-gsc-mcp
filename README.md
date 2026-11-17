@@ -1,6 +1,14 @@
 # Infinitnet Google Search Console (GSC) MCP Server
 
 <p align="center">
+  <a href="https://github.com/infinitnet/google-search-console-gsc-mcp/actions/workflows/ci.yml"><img src="https://github.com/infinitnet/google-search-console-gsc-mcp/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/@infinitnet/google-search-console-gsc-mcp-server"><img src="https://img.shields.io/npm/v/@infinitnet/google-search-console-gsc-mcp-server" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@infinitnet/google-search-console-gsc-mcp-server"><img src="https://img.shields.io/npm/dm/@infinitnet/google-search-console-gsc-mcp-server" alt="npm downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@infinitnet/google-search-console-gsc-mcp-server" alt="License"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/node/v/@infinitnet/google-search-console-gsc-mcp-server" alt="Node.js"></a>
+</p>
+
+<p align="center">
   <a href="https://buymeacoffee.com/infinitnet"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"></a>
   <a href="https://ko-fi.com/infinitnet"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=6" alt="Support me on Ko-fi" height="40"></a>
 </p>
